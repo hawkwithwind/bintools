@@ -1,0 +1,178 @@
+<head>
+  <script src="https://cdn.bootcss.com/vue/2.6.10/vue.min.js"></script>
+  <script src="https://cdn.bootcss.com/axios/0.18.0/axios.min.js"></script>
+
+  <!-- use the latest vue-select release -->
+  <script src="https://unpkg.com/vue-select@latest"></script>
+  <link rel="stylesheet" href="https://unpkg.com/vue-select@latest/dist/vue-select.css">
+  
+  <link rel="stylesheet" href="css/pure-min.css">
+  <link rel="stylesheet" href="css/purecss-baby-blue.css">
+  <link rel="stylesheet" href="css/index.css">
+  <style>
+    ul {
+    list-style: none; /* Remove HTML bullets */
+    padding: 0;
+    margin: 0;
+    }
+
+    li { 
+    padding-left: 16px; 
+    }
+
+    li::before {
+    content: "="; /* Insert content that looks like bullets */
+    padding-right: 8px;
+    color: blue; /* Or a color you prefer */
+    }
+
+    .value {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 600px;
+    }
+
+    .main-value {
+    color: black;
+    }
+
+    .sub-value {
+    color: gray;
+    margin-left: 20px;
+    }
+
+    .value-display {
+    word-wrap:break-word;
+    overflow-x: hidden; /* Hide horizontal scrollbar */
+    overflow-y: auto; /* Add vertical scrollbar */
+    }
+
+    pre {
+    margin: 0px;
+    }
+  </style>
+</head>
+<body style="background-color:white">
+  
+  
+  <div id="app" style="margin:20px">
+    
+    <div class="pure-g row header">
+      <span class="page-title">Bin Tools</span>
+    </div>
+    
+    <div class="pure-g row content">
+      
+      <div class="pure-u-1-2"> <!-- pack & unpack -->
+        <div class="pure-g row">
+          <div class="pure-u-1">
+            <textarea class="pure-u-1" v-model="raw" placeholder="等待输入" rows="2" ></textarea>
+          </div>
+        </div>
+        <div class="pure-g row">
+          <div class="pure-u-1">
+            <button class="pure-button pure-button-primary" v-on:click="saveNumber">
+              数
+            </button>
+            <button class="pure-button pure-button-primary" v-on:click="saveString">
+              串
+            </button>
+            <button class="pure-button pure-button-primary" v-on:click="saveHex">
+              Hex
+            </button>
+            <button class="pure-button pure-button-primary" v-on:click="saveTimestamp">
+              秒
+            </button>
+            <!--
+            <button class="pure-button pure-button-primary" v-on:click="saveB64">
+              B64
+            </button>
+            -->
+            <button class="pure-button pure-button-primary" v-on:click="saveNet">
+              网
+            </button>
+            <button class="pure-button pure-button-primary" v-on:click="saveHandshake">
+              握手
+            </button>
+          </div>
+        </div>
+        <div class="pure-g row">
+          <div class="pure-u-1">
+            <div class="pure-u-1-6">
+              <v-select v-model="symdecrypt.method" :options="['aes/cbc']" />
+            </div>
+            <div class="pure-u-1-6">
+              <v-select v-model="symdecrypt.codec"  :options="['hex']" />
+            </div>
+            <input type="text" v-model="symdecrypt.key" placeholder="密钥" style="padding:3px" />
+            <input type="text" v-model="symdecrypt.iv"  placeholder="初始偏移" style="padding:3px" />
+            <button class="pure-button pure-button-primary" v-on:click="saveCryptText">
+              解密
+            </button>
+          </div>
+        </div>
+        <div class="pure-g row">
+          <div class="pure-u-1 value-display" style="padding:3px; max-height:200px; border:1px solid black;">
+            {{selected.value}}
+          </div>
+        </div>
+        <div class="pure-g row">
+          <div class="pure-u-2-3 value-display" style="padding:3px">
+            <pre>{{selected.display.left}}</pre>
+          </div>
+          <div class="pure-u-1-3 value-display" style="padding:3px">
+            <pre>{{selected.display.right}}</pre>
+          </div>
+        </div>
+      </div> <!-- pack & unpack -->
+      <div class="pure-u-1-2"><!-- right -->
+        <div class="pure-g row" ref="logwindow" style="height:300px;overflow:auto;"><!--log-->
+          <div class="pure-u-1">
+            <pre>{{logtext}}</pre>
+          </div>
+        </div><!--log-->
+        <div class="pure-g row" ><!--value list-->
+          <div class="pure-u-1">
+            <div class="value">
+              <ul id="value-list">
+                <li v-for="item in items" v-on:click="select(item)">
+                  <span v-if="item.valuetype == 'number'">
+                    <span class="main-value">{{item.valueb10}}</span>
+                    <span class="sub-value">{{item.valueb16}}</span>
+                  </span>
+                  <span v-if="item.valuetype == 'buffer'">
+                    <span class="main-value"><code style="background-color:#dcdcdc;">
+                        {{item.valuestr}}</code></span><br/>
+                    <span class="sub-value">{{item.valueb16}}</span>
+                  </span>
+                  <span v-if="item.valuetype == 'time'">
+                    <span class="main-value"><code style="background-color:#dcdcdc;">
+                        {{item.valuestr}}</code></span><br/>
+                    <span class="sub-value">{{item.valueb16}}</span>
+                  </span>
+                  <span v-if="item.valuetype == 'netbuffer'">
+                    {{item.valuenettype}} : 
+                    <span class="main-value"><code style="background-color:#dcdcdc;">
+                        {{item.valuestr}}</code></span><br/>
+                    <span class="sub-value">{{item.valueb16}}</span>
+                  </span>
+                  <span v-if="item.valuetype == 'handshake'">
+                    <span class="main-value"><code style="background-color:#dcdcdc;">
+                        {{item.value16}}</code></span><br/>
+                    <span class="sub-value">{{item.valueb16}}</span>
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div><!--value list-->
+      </div><!-- right -->
+    </div>
+  </div>
+  
+  <script src="js/index.js"></script>
+</body>
+
+
+
