@@ -1,4 +1,5 @@
 /target/
+/docker/java/runtime/app.jar
 !.mvn/wrapper/maven-wrapper.jar
 
 ### STS ###

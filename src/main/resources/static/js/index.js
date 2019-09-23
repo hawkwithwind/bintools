@@ -375,7 +375,7 @@ async function saveCryptText(app, decryptRequest) {
     let valuestr = hour+":"+minute+":"+second
     
     app.logtext += valuestr + " " +retdata.message + "\n"
-    setInterval(function() {
+    setTimeout(function() {
       app.$refs.logwindow.scrollTop = app.$refs.logwindow.scrollHeight;
     }, 100)
     return null
