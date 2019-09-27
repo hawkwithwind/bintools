@@ -79,7 +79,7 @@ function displayHexStr(hex) {
       if(i*16+j>=hex.length/2) {
         break
       }
-      let b16 = hex[i*16+j*2] + hex[i*16+j*2+1]
+      let b16 = hex[i*32+j*2] + hex[i*32+j*2+1]
       let b = parseInt(b16, 16)
       if (b >= 32 && b <= 126) {
         try {
@@ -129,16 +129,30 @@ function saveString(raw) {
     value: raw,
     valuetype: 'buffer',
     valuestr: raw,
-    valueb16: ascii_to_hexa(raw)
+    valueb16: ascii_to_hexa(raw),
+    display: {
+      left: raw,
+      right: ascii_to_hexa(raw),
+    }
   }
 }
 
 function saveHex(raw) {
   let str = raw.hexDecode()
+
+  let b1 = "0x" + raw.slice(0,2)
+  let n1 = parseInt(b1, 16)
+  let b2 = "0x" + raw.slice(0,4)
+  let n2 = parseInt(b2, 16)
+  let b4 = "0x" + raw.slice(0,8)
+  let n4 = parseInt(b4, 16)
+  let b8 = "0x" + raw.slice(0,16)
+  let n8 = parseInt(b8, 16)
+  
   return {
     value: raw,
     valuetype: 'buffer',
-    valuestr: str,
+    valuestr: `${n1}, ${n2}, ${n4}, ${n8}; ` + str,
     valueb16: raw,
     display: {
       left: displayHex(raw),
@@ -348,10 +362,49 @@ function saveHandshake(hex) {
   }
 }
 
+function apiErrorLog(app, retdata) {
+  var date = new Date()
+  var hour = ("000"+date.getHours()).slice(-2)
+  var minute = ("000"+date.getMinutes()).slice(-2)
+  var second = ("000"+date.getSeconds()).slice(-2)
+  
+  let valuestr = hour+":"+minute+":"+second
+  
+  app.logtext += valuestr + " " +retdata.message + "\n"
+  setTimeout(function() {
+    app.$refs.logwindow.scrollTop = app.$refs.logwindow.scrollHeight;
+  }, 100)
+}
+
+async function saveEncode(app, raw) {
+  let resp = await axios({
+    method: 'POST',
+    url: '/encode',
+    data: {fromCodec: app.encode.from, toCodec: app.encode.to, text: raw},
+  })
+
+  let retdata =resp.data
+  if (retdata && retdata.result && retdata.message == "ok") {
+    return {
+      value: raw,
+      valuetype: 'buffer',
+      valuestr: raw,
+      valueb16: retdata.result,
+      display: {
+        left: raw,
+        right: retdata.result,
+      }
+    }
+  } else {
+    apiErrorLog(app, retdata)
+    return null
+  }
+}
+
 async function saveCryptText(app, decryptRequest) {
   let resp = await axios({
     method: 'POST',
-    url: '/decode',
+    url: '/decrypt',
     data: decryptRequest,
   })
   let retdata = resp.data
@@ -367,17 +420,49 @@ async function saveCryptText(app, decryptRequest) {
       }
     }
   } else {
-    var date = new Date()
-    var hour = ("000"+date.getHours()).slice(-2)
-    var minute = ("000"+date.getMinutes()).slice(-2)
-    var second = ("000"+date.getSeconds()).slice(-2)
-    
-    let valuestr = hour+":"+minute+":"+second
-    
-    app.logtext += valuestr + " " +retdata.message + "\n"
-    setTimeout(function() {
-      app.$refs.logwindow.scrollTop = app.$refs.logwindow.scrollHeight;
-    }, 100)
+    apiErrorLog(app, retdata)
+    return null
+  }
+}
+
+async function savePb(app, raw) {
+  let resp = await axios({
+    method: 'POST',
+    url: '/pbunpack',
+    data: {codec:'hex', text:raw},
+  })
+
+  let retdata = resp.data
+  if (retdata && retdata.result && retdata.message == "ok") {
+    return {
+      value: raw,
+      valuetype: 'buffer',
+      valuestr: retdata.result,
+      display: {left: displayHex(raw), right: retdata.result}
+    }
+  } else {
+    apiErrorLog(app, retdata)
+    return null;
+  }
+}
+
+async function saveP(app, raw) {
+  let resp = await axios({
+    method: 'POST',
+    url: 'http://127.0.0.1:18868/unpack',
+    data: {codec: 'hex', text: raw},
+  })
+
+  let retdata = resp.data
+  if (retdata && retdata.result && retdata.message == "ok") {
+    return {
+      value: raw,
+      valuetype: 'buffer',
+      valuestr: retdata.result,
+      display: {left: displayHex(raw), right: retdata.result},
+    }
+  } else {
+    apiErrorLog(app, retdata)
     return null
   }
 }
@@ -404,9 +489,14 @@ var app = new Vue({
     items: [],
     log: 'hello, bin tools\n',
     selected: {raw:"", value:"", display:{}},
+    encode: {
+      from: "hex",
+      to: "base64",
+    },
     symdecrypt: {
       method: "aes/cbc",
       codec: "hex",
+      padding: "NoPadding",
       cryptText: "",
       key: "",
       iv: "",
@@ -429,24 +519,45 @@ var app = new Vue({
       this.selected = this.items[this.items.length-1]
     },
     saveHex: function() {
-      let ret = preprocess(this.raw)
-      this.items.push(saveHex(ret))
+      this.items.push(saveHex(this.raw))
       this.raw = ''
       this.selected = this.items[this.items.length-1]
     },
     saveB64: function() {
     },
     saveNet: function() {
-      let ret = preprocess(this.raw)
-      this.items.push(saveNet(ret))
+      this.items.push(saveNet(this.raw))
       this.raw = ''
       this.selected = this.items[this.items.length-1]
     },
     saveHandshake: function() {
-      let ret = preprocess(this.raw)
-      this.items.push(saveHandshake(ret))
+      this.items.push(saveHandshake(this.raw))
       this.raw = ''
       this.selected = this.items[this.items.length-1]
+    },
+    saveEncode: async function() {
+      let resp = await saveEncode(this, this.raw)
+      if (resp) {
+        this.items.push(resp)
+        this.raw = ''
+        this.selected = this.items[this.items.length-1]
+      }
+    },
+    saveP: async function() {
+      let resp = await saveP(this, this.raw)
+      if (resp) {
+        this.items.push(resp)
+        this.raw = ''
+        this.selected = this.items[this.items.length-1]
+      }
+    },
+    savePb: async function() {
+      let resp = await savePb(this, this.raw)
+      if(resp) {
+        this.items.push(resp)
+        this.raw = ''
+        this.selected = this.items[this.items.length-1]
+      }
     },
     saveCryptText: async function() {
       this.symdecrypt.cryptText = this.raw

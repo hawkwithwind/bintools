@@ -9,10 +9,14 @@ import java.security.spec.ECGenParameterSpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 public class CryptTools {
     private static final Provider PROVIDER_BC = new BouncyCastleProvider();
+
+    private static List<String> paddings = new ArrayList<String>(Arrays.asList("NoPadding", "PKCS1Padding", "PKCS5Padding", "PKCS7Padding", "PKCS12Padding"));
     
     /**
      * 使用AES-GCM算法进行加密
@@ -67,9 +71,14 @@ public class CryptTools {
      * @param data 需要加密的数据
      * @return 加密后的数据
      */
-    public static byte[] aesCbcEncryptData(byte[] key, byte[] iv, byte[] data)
+    public static byte[] aesCbcEncryptData(String padding, byte[] key, byte[] iv, byte[] data)
     throws Exception {
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS7Padding", PROVIDER_BC);
+
+        if(!paddings.contains(padding)) {
+            throw new Exception("不支持 " + "AES/CBC/" + padding);
+        }
+        
+        Cipher cipher = Cipher.getInstance("AES/CBC/" + padding, PROVIDER_BC);
         if (iv != null) {
             IvParameterSpec parameterSpec = new IvParameterSpec(iv);
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), parameterSpec);
@@ -86,9 +95,13 @@ public class CryptTools {
      * @param data 需要解密的数据
      * @return 解密后的数据
      */
-    public static byte[] aesCbcDecryptData(byte[] key, byte[] iv, byte[] data)
+    public static byte[] aesCbcDecryptData(String padding, byte[] key, byte[] iv, byte[] data)
     throws Exception {
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS7Padding", PROVIDER_BC);
+        if(!paddings.contains(padding)) {
+            throw new Exception("不支持 " + "AES/CBC/" + padding);
+        }
+        
+        Cipher cipher = Cipher.getInstance("AES/CBC/" + padding, PROVIDER_BC);
         if (iv != null) {
             IvParameterSpec parameterSpec = new IvParameterSpec(iv);
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), parameterSpec);
