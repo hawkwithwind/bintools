@@ -502,6 +502,15 @@ var app = new Vue({
       iv: "",
     },
   },
+  mounted () {
+    window.onbeforeunload = function (e) {
+      // Cancel the event as stated by the standard.
+      event.preventDefault()
+      // Chrome requires returnValue to be set.
+      event.returnValue = '确定要刷新页面吗？'
+      return '确定要刷新页面吗？'
+    }
+  },
   methods: {
     saveNumber: function() {
       let ret = preprocess(this.raw)
