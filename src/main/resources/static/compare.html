@@ -1,0 +1,52 @@
+<head>
+  <script src="https://cdn.bootcss.com/vue/2.6.10/vue.min.js"></script>
+
+  <link rel="stylesheet" href="css/pure-min.css">
+  <link rel="stylesheet" href="css/purecss-baby-blue.css">
+  <link rel="stylesheet" href="css/index.css">
+  <style>
+    .value-display {
+    word-wrap:break-word;
+    overflow-x: hidden; /* Hide horizontal scrollbar */
+    overflow-y: auto; /* Add vertical scrollbar */
+    }
+
+    pre {
+    margin: 0px;
+    }
+
+    .red {
+    color: red;
+    }
+  </style>
+</head>
+<body  style="background-color:white">
+  <div id="app" style="margin:20px">
+    
+    <div class="pure-g row header">
+      <span class="page-title">Compare</span>
+    </div>
+
+    <div class="pure-g row content">
+      <div class="pure-u-1-2"> <!-- left -->
+        <div class="pure-u-1">
+          <textarea class="pure-u-1" v-model="raw.left" placeholder="等待输入" rows="10" @change="compare" @input="compare"></textarea>
+        </div>
+        <div class="pure-u-1 value-display">
+          <pre v-html="display.left"></pre>
+        </div>
+      </div> <!-- left end-->
+      <div class="pure-u-1-2"> <!-- right -->
+        <div class="pure-u-1">
+          <textarea class="pure-u-1" v-model="raw.right" placeholder="等待输入" rows="10" @change="compare" @input="compare"></textarea>
+        </div>
+        <div class="pure-u-1 value-display">
+          <pre v-html="display.right"></pre>
+        </div>
+      </div><!--right end-->
+    </div>
+
+  </div>
+  
+  <script src="js/compare.js"></script>
+</body>
