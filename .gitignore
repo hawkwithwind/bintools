@@ -40,4 +40,9 @@ transaction-logs/
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
+# Mac OS
 .DS_Store
+
+# node
+node_modules
+frontend/dist
