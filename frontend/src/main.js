@@ -70,7 +70,7 @@ const router = new VueRouter({
     {
       path: '/proto_bin',
       component: ProtoBin
-    },
+    }
   ]
 });
 
@@ -78,4 +78,4 @@ new Vue({
   el: '#app',
   router,
   render: r => r(App)
-})
+});

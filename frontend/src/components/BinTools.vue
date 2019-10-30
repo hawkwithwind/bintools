@@ -1,11 +1,11 @@
 <template>
   <div>  
-    <div class="pure-g row content">
+    <div class="pure-g content">
       
       <div class="pure-u-1-2"> 
         <div class="pure-g row">
           <div class="pure-u-1">
-            <textarea class="pure-u-1" v-model="raw" placeholder="等待输入" rows="2" ></textarea>
+            <el-input type="textarea" :rows="2" placeholder="等待输入" v-model="raw"></el-input>
           </div>
         </div>
         <div class="pure-g row">
@@ -41,43 +41,109 @@
             </button>
           </div>
         </div>
+
         <div class="pure-g row">
-          <div class="pure-u-1 right-button-section">
-            <div class="pure-u-1-6">
-              <v-select v-model="encode.from" :options="['hex', 'base64']" />
-            </div>
-            <div class="pure-u-1-6">
-              <v-select v-model="encode.to"   :options="['hex', 'base64']" />
-            </div>
-            <button class="pure-button pure-button-primary" v-on:click="saveEncode">
-              转码
-            </button>
+          <div class="pure-u-1">
+            <el-select v-model="encode.from" size="medium" placeholder="hex">
+              <el-option v-for="item in ['hex', 'base64']" :key="item" :label="item" :value="item"></el-option>
+            </el-select>
+
+            <el-select v-model="encode.to" size="medium" placeholder="base64">
+              <el-option v-for="item in ['hex', 'base64']" :key="item" :label="item" :value="item"></el-option>
+            </el-select>
+
+            <button class="pure-button pure-button-primary" :clearable="false" v-on:click="saveEncode">转码</button>
           </div>
         </div>
-        <div class="pure-g row">
-          <div class="pure-u-1 right-button-section">
-            <div class="pure-u-1-6">
-              <v-select v-model="symdecrypt.codec"   :options="['hex', 'base64']" />
-            </div>
-            <div class="pure-u-1-6">
-              <v-select v-model="symdecrypt.method"  :options="['aes/cbc']" />
-            </div>
-            <div class="pure-u-1-3">
-              <v-select v-model="symdecrypt.padding" :options="['NoPadding', 'PKCS5Padding', 'PKCS7Padding']" />
+
+        <el-card class="box-card" shadow="hover" :body-style="{padding: '10px'}" data-123>
+          <div slot="header" class="clearfix">
+            <span>加解密</span>
+          </div>
+
+          <div class="pure-g row">
+            <div class="pure-u-1 row">
+              <el-select v-model="symdecrypt.codec" size="medium" placeholder="hex">
+                <el-option v-for="item in ['hex', 'base64']" :key="item" :label="item" :value="item"></el-option>
+              </el-select>
+
+              <el-select v-model="symdecrypt.method" size="medium" placeholder="aes/cbc">
+                <el-option v-for="item in ['aes/cbc']" :key="item" :label="item" :value="item"></el-option>
+              </el-select>
+
+              <el-select v-model="symdecrypt.padding" size="medium" placeholder="NoPadding">
+                <el-option v-for="item in ['NoPadding', 'PKCS5Padding', 'PKCS7Padding']" :key="item" :label="item" :value="item"></el-option>
+              </el-select>
             </div>
           </div>
-        </div>
-        <div class="pure-g row">
-          <div class="pure-u-1 right-button-section">
-            <input type="text" v-model="symdecrypt.key" placeholder="密钥" size="32" style="padding:3px" />
-            <input type="text" v-model="symdecrypt.iv"  placeholder="初始偏移" size="32" style="padding:3px" />
-            <button class="pure-button pure-button-primary" v-on:click="saveCryptText">
-              解密
-            </button>
+          <div class="pure-g row">
+            <div class="pure-u-1 row">
+              <el-input size="medium"
+                        placeholder="密钥"
+                        :clearable="true"
+                        v-model="symdecrypt.key"></el-input>
+
+              <el-input size="medium"
+                        placeholder="iv"
+                        :clearable="true"
+                        v-model="symdecrypt.iv"></el-input>
+              <button class="pure-button pure-button-primary" v-on:click="saveCryptText">解密</button>
+            </div>
           </div>
-        </div>
+        </el-card>
+
+        <el-card class="box-card address-calc" shadow="hover" :body-style="{padding: '10px'}" data-123>
+          <div slot="header" class="clearfix">
+            <span>地址计算器</span>
+            <el-button style="float: right; padding: 5px 10px;"
+                       plain
+                       size="medium"
+                       @click="addressCalcAdd">添加</el-button>
+            <el-button style="float: right; padding: 5px 10px; margin-right: 10px;"
+                       plain
+                       size="medium"
+                       icon="el-icon-refresh-right"
+                       @click="addressCalcRefreshImageList">lldb imagelist</el-button>
+          </div>
+
+          <div class="row" v-for="(image, index) in addressCalc.calculations" :key="index">
+            <el-select class="image-select"
+                       v-model="image.imageName"
+                       filterable
+                       size="medium"
+                       placeholder="Image"
+                       @change="addressCalcInputDidChange(index, 'image')">
+              <el-option v-for="item in addressCalc.imageNames"
+                         :key="item"
+                         :label="item"
+                         :value="item">
+              </el-option>
+            </el-select>
+            <el-input size="medium"
+                      placeholder="slide"
+                      :clearable="true"
+                      v-model="image.slide"
+                      @change="addressCalcInputDidChange(index, 'slide')"></el-input>
+            +
+            <el-input class="offset"
+                      size="medium"
+                      :clearable="true"
+                      placeholder="offset"
+                      v-model="image.offset"
+                      @change="addressCalcInputDidChange(index, 'offset')"></el-input>
+            =
+            <div class="result">{{image.result}}</div>
+            <div class="space"/>
+            <el-input class="mark"
+                      size="mini"
+                      placeholder="备注"
+                      v-model="image.mark"
+                      @change="addressCalcInputDidChange(index, 'mark')"></el-input>
+          </div>
+        </el-card>
+
         <div class="pure-g row">
-          <div class="pure-u-1 value-display" style="padding:3px; max-height:200px; border:1px solid black;">
+          <div class="pure-u-1 value-display" v-if="select.value" style="padding:3px; max-height:200px; border:1px solid black;">
             {{selected.value}}
           </div>
         </div>
@@ -96,7 +162,7 @@
             <pre>{{logtext}}</pre>
           </div>
         </div><!--log-->
-        <div class="pure-g row" ><!--value list-->
+        <div class="pure-g row right-log" ><!--value list-->
           <div class="pure-u-1">
             <div class="value">
               <ul id="value-list">
@@ -125,6 +191,9 @@
                     <span class="main-value"><code style="background-color:#dcdcdc;">
                         {{item.value16}}</code></span><br/>
                     <span class="sub-value">{{item.valueb16}}</span>
+                  </span>
+                  <span v-if="item.valuetype == 'calc'">
+                    <span class="main-value">{{item.valuestr}}<span class="mark" v-if="item.mark">({{item.mark}})</span></span>
                   </span>
                 </li>
               </ul>
@@ -616,6 +685,18 @@ export default {
         key: "",
         iv: "",
       },
+
+      addressCalc: {
+        calculations: [{
+          imageName: null,
+          slide: null,
+          offset: null,
+          result: null,
+          mark: null,
+        }],
+        imageNames:[],
+        imageSlideDict: {}
+      }
     }
   },
   methods: {
@@ -677,7 +758,7 @@ export default {
     },
     saveCryptText: async function() {
       this.symdecrypt.cryptText = this.raw
-      
+
       let resp = await saveCryptText(this, this.symdecrypt)
       if(resp) {
         this.items.push(resp)
@@ -697,7 +778,7 @@ export default {
       var second = date.getSeconds()
 
       let valuestr = year+'-'+(monthIndex+1)+'-'+day + " " + hour+":"+minute+":"+second
-      
+
       this.items.push({
         value: ret,
         valuestr: valuestr,
@@ -715,6 +796,83 @@ export default {
       this.selected = item
       console.log(item)
     },
+    addressCalcAdd() {
+      this.addressCalc.calculations.push({
+        slide: null,
+        offset: null,
+        result: null,
+      })
+    },
+
+    _addressCalcUpdate(calculation) {
+      if (calculation.slide && calculation.offset) {
+        const slideInt = parseInt(calculation.slide, 16);
+        const offsetInt = parseInt(calculation.offset, 16);
+        calculation.result = '0x' + (slideInt + offsetInt).toString(16);
+
+        this.items.push({
+          valuestr: `0x${slideInt.toString(16)} + 0x${offsetInt.toString(16)} = ${calculation.result}`,
+          mark: calculation.mark,
+          valuetype: 'calc',
+        })
+      }
+    },
+
+    addressCalcInputDidChange(index, type) {
+      const calculation = this.addressCalc.calculations[index];
+
+      if (type === 'image') {
+        calculation.slide = this.addressCalc.imageSlideDict[calculation.imageName];
+      }
+
+      this._addressCalcUpdate(calculation);
+    },
+    addressCalcRefreshImageList() {
+      if (!this.raw) {
+        this.$message.warning("请输入 lldb image list 命令输出结果");
+        return;
+      }
+
+      const lines = this.raw.split(`\n`);
+
+      const imageSlideDict = {};
+      const imageNames = [];
+      lines.forEach((line) => {
+        const reg = /^\[\s*\d+\]\s+?\S+\s*(0x[\w]+)\s+(.+)$/g;
+        const m = reg.exec(line);
+        if (!m) {
+          return;
+        }
+
+        const slide = '0x' + parseInt(m[1], 16).toString(16); // remove trivial zeros
+        const paths = m[2].split('/');
+        const lastPath = paths[paths.length - 1];
+        const imageName = lastPath.split(' ')[0];
+
+        imageNames.push(imageName);
+        imageSlideDict[imageName] = slide;
+      });
+
+      this.addressCalc.imageNames = imageNames;
+      this.addressCalc.imageSlideDict = imageSlideDict;
+
+      this.addressCalc.calculations.forEach((calculation) => {
+        if (!calculation.imageName) {
+          return;
+        }
+
+        const newSlide = this.addressCalc.imageSlideDict[calculation.imageName];
+        if (newSlide === calculation.slide) {
+          return;
+        }
+
+        calculation.slide = newSlide;
+
+        this._addressCalcUpdate(calculation);
+      });
+
+      this.$message.success('更新成功');
+    }
   }
 }
 </script>
@@ -727,13 +885,33 @@ export default {
   }
 }
 
-.right-button-section {
-  .v-select {
+.row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 10px;
+
+  ::v-deep .el-select {
+    margin-right: 10px;
+    width: 170px;
+
+    &.padding {
+      width: 200px;
+    }
+  }
+
+  .name {
     margin-right: 10px;
   }
-  
-  input {
+
+  .el-input {
+    width: 200px;
     margin-right: 10px;
+    flex-shrink: 0;
+  }
+
+  .space {
+    flex-grow: 1;
   }
 }
 
@@ -777,5 +955,43 @@ li::before {
 
 pre {
   margin: 0px;
+}
+
+::v-deep .el-card__header {
+  padding: 5px 10px;
+}
+
+.box-card {
+  margin-bottom: 10px;
+}
+
+.address-calc {
+  .offset {
+    margin-left: 10px;
+  }
+
+  .mark {
+    width: 60px;
+
+    ::v-deep .el-input__inner {
+      padding: 0 4px;
+    }
+  }
+
+  .result {
+    margin-left: 10px;
+  }
+
+  .image-select {
+    width: 100px;
+    margin-right: 10px;
+  }
+}
+
+.right-log {
+  .mark {
+    margin-left: 4px;
+    color: #8c939d;
+  }
 }
 </style>
