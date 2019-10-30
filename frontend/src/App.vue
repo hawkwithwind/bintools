@@ -11,8 +11,12 @@
             <span slot="title">Binary Diff</span>
           </el-menu-item>
           <el-menu-item index="/console_pretty">
-            <i class="el-icon-view"></i>
+            <i class="el-icon-finished"></i>
             <span slot="title">Console Pretty</span>
+          </el-menu-item>
+          <el-menu-item index="/proto_bin">
+            <i class="el-icon-orange"></i>
+            <span slot="title">Proto Bin</span>
           </el-menu-item>
         </el-menu>
       </el-aside>

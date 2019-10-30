@@ -181,7 +181,7 @@ export default {
     margin-top: 10px;
 
     .pure-button {
-      margin-right: 10px;
+      margin-right: 100px;
     }
   } 
 }
