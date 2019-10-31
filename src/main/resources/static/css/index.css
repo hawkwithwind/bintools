@@ -4,8 +4,8 @@ html {
     -moz-osx-font-smoothing: grayscale;
 }
 
-.row {
-    padding: 5px;
+body {
+    color: #313131;
 }
 
 .item {

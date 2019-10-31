@@ -60,7 +60,7 @@ export default {
                   return index === 0 ? val.replace("+0800", "") : val;
               }).join(" ");
 
-              const XNSLogOutputStartRegex = /(.*?) <(\d+) >START/g;
+              const XNSLogOutputStartRegex = /(.*?) -(\d+)- START/g;
               const startExec = XNSLogOutputStartRegex.exec(newLine);
               if (startExec) {
                   currentTime = startExec[1];
@@ -69,14 +69,7 @@ export default {
                   return;
               }
 
-              const XNSLogOutputMiddleRegex = new RegExp("^.*? <" + currentSeq + "> (.*)$");
-              const middleExec = XNSLogOutputMiddleRegex.exec(newLine);
-              if (middleExec) {
-                  currentContent += middleExec[1];
-                  return;
-              }
-
-              const XNSLogOutputEndRegex = /(.*?) <(\d+) >END/g;
+              const XNSLogOutputEndRegex = /(.*?) -(\d+)- END/g;
               const endExec = XNSLogOutputEndRegex.exec(newLine);
               if (endExec) {
                   if (endExec[2] !== currentSeq) {
@@ -87,6 +80,13 @@ export default {
                   currentSeq = 0;
                   currentTime = null;
                   currentContent = null;
+                  return;
+              }
+
+              const XNSLogOutputMiddleRegex = new RegExp("^.*? -" + currentSeq + "- (.*)$");
+              const middleExec = XNSLogOutputMiddleRegex.exec(newLine);
+              if (middleExec) {
+                  currentContent += middleExec[1];
                   return;
               }
 
@@ -105,7 +105,7 @@ export default {
                   return [3, 4, 5].indexOf(index) === -1;
               }).join(" ");
 
-              const XNSLogOutputStartRegex = /(.*?) <(\d+) >START/g;
+              const XNSLogOutputStartRegex = /(.*?) -(\d+)- START/g;
               const startExec = XNSLogOutputStartRegex.exec(newLine);
               if (startExec) {
                   currentTime = startExec[1];
@@ -114,14 +114,7 @@ export default {
                   return;
               }
 
-              const XNSLogOutputMiddleRegex = new RegExp("^.*? <" + currentSeq + "> (.*)$");
-              const middleExec = XNSLogOutputMiddleRegex.exec(newLine);
-              if (middleExec) {
-                  currentContent += middleExec[1];
-                  return;
-              }
-
-              const XNSLogOutputEndRegex = /(.*?) <(\d+) >END/g;
+              const XNSLogOutputEndRegex = /(.*?) -(\d+)- END/g;
               const endExec = XNSLogOutputEndRegex.exec(newLine);
               if (endExec) {
                   if (endExec[2] !== currentSeq) {
@@ -132,6 +125,13 @@ export default {
                   currentSeq = 0;
                   currentTime = null;
                   currentContent = null;
+                  return;
+              }
+
+              const XNSLogOutputMiddleRegex = new RegExp("^.*? -" + currentSeq + "- (.*)$");
+              const middleExec = XNSLogOutputMiddleRegex.exec(newLine);
+              if (middleExec) {
+                  currentContent += middleExec[1];
                   return;
               }
 
