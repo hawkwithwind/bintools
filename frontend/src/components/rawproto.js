@@ -82,10 +82,7 @@ export const getData = (buffer, stringMode = 'auto') => {
                     } else if (stringMode === 'string') {
                         out[id + ':Length-delimited:string'] = bytes.utf8StringEncode();
                     } else {
-                        out[id + ':Length-delimited'] = {
-                            "binary": bytes.hexEncode(),
-                            "string":  bytes.utf8StringEncode()
-                        };
+                        out[id + ':Length-delimited'] = `${bytes.utf8StringEncode()} , <${bytes.hexEncode()}>}`;
                     }
                 }
                 break;

@@ -1,19 +1,32 @@
 <template>
     <div>
         <div class="input">
-            <textarea class="text pure-u-1" v-model="inputText" placeholder="等待输入" rows="5"></textarea>
-            <div class="action">
-                <button class="pure-button pure-button-primary" @click="inspect">Inspect</button>
+            <el-input class="text" type="textarea" :rows="3" placeholder="等待输入 protobuf 二进制数据" v-model="inputProtoBin"></el-input>
 
-                <div class="decode-section">
-                    <v-select class="select" v-model="selectProtoClass" placeholder="请选择 proto class" :options="protoInfo.classList" />
-                    <button class="pure-button pure-button-primary" @click="decode">解码</button>
-                </div>
+            <div class="action">
+                <el-button class="button" type="primary" size="medium" @click="decode">解码</el-button>
+                <el-select class="select" v-model="selectProtoClass" size="medium" placeholder="可选择proto class" filterable clearable>
+                    <el-option v-for="item in protoInfo.classList" :key="item" :label="item" :value="item"></el-option>
+                </el-select>
+
+                <div class="space"></div>
+
+                <el-dropdown @command="didClickHistory">
+                    <span class="el-dropdown-link">
+                        历史记录<i class="el-icon-arrow-down el-icon--right"></i>
+                    </span>
+                    <el-dropdown-menu slot="dropdown">
+                        <el-dropdown-item :command="index" v-for="(item, index) in histories" v-bind:key="item.protoBin.substring(0, 10)">
+                            {{ (item.protoClass && item.protoClass + ' - ' || '') + item.protoBin.substring(0, 10) + '...' + item.protoBin.substring(item.protoBin.length-10, item.protoBin.length)}}
+                        </el-dropdown-item>
+                    </el-dropdown-menu>
+                </el-dropdown>
             </div>
         </div>
 
         <div class="output">
-            <vue-json-pretty class="json-pretty" v-if="decodedProtoJSON" :data="decodedProtoJSON"></vue-json-pretty>
+            <vue-json-pretty class="json-pretty" :class="{two: !!decodedClassJSON}" v-if="decodedRawJSON" :data="decodedRawJSON"></vue-json-pretty>
+            <vue-json-pretty class="json-pretty" :class="{two: !!decodedClassJSON}" v-if="decodedClassJSON" :data="decodedClassJSON"></vue-json-pretty>
         </div>
     </div>
 </template>
@@ -29,13 +42,23 @@ export default {
     name: 'ProtoBin',
     data() {
         return {
-            inputText: "",
+            inputProtoBin: "",
             protoInfo: {
                 classList: [],
                 getClassFunc: null
             },
             selectProtoClass: null,
-            decodedProtoJSON: null,
+
+            decodedRawJSON: null,
+            decodedClassJSON: null,
+
+            /**
+             * {
+             *     protoClass: '',
+             *     protoBin: ''
+             * }
+             */
+            histories:[]
         }
     },
     components: {
@@ -43,41 +66,45 @@ export default {
     },
     async mounted() {
         await this._parseProtoIfNeed();
-
-
-
-        console.log(this.protoInfo);
     },
     methods: {
-        async inspect() {
-            if (!this.inputText) {
-                this.$message.warning('请输入 protobuf 数据');
-                return;
-            }
-
-            const buffer = Buffer.from(this.inputText, "hex");
-            this.decodedProtoJSON = getData(buffer);
-        },
-
         async decode() {
-            if (!this.inputText) {
+            if (!this.inputProtoBin) {
                 this.$message.warning('请输入 protobuf 数据');
                 return;
             }
 
-            if (!this.selectProtoClass) {
-                this.$message.warning('请选择 proto class');
-                return;
+            await this._parseProtoIfNeed();
+
+            let success = true;
+
+            const buffer = Buffer.from(this.inputProtoBin, "hex");
+            this.decodedRawJSON = getData(buffer);
+
+            if (this.selectProtoClass) {
+                const ProtoClass = this.protoInfo.getClassFunc(this.selectProtoClass);
+                try {
+                    const inBuffer = Buffer.from(this.inputProtoBin, "hex");
+                    this.decodedClassJSON = ProtoClass.decode(inBuffer);
+                } catch (e) {
+                    this.$message.error(`${this.selectProtoClass} 解码失败：\n${e.toString()}`);
+                    console.error(e);
+                    success = false;
+                }
+            } else {
+                this.decodedClassJSON = null;
             }
 
-            const ProtoClass = this.protoInfo.getClassFunc(this.selectProtoClass);
-            try {
-                const inBuffer = Buffer.from(this.inputText, "hex");
-                this.decodedProtoJSON = ProtoClass.decode(inBuffer);
-            } catch (e) {
-                this.$message.error(`解码失败：\n${e.toString()}`);
-                console.error(e);
+            if (success) {
+                this._appendHistory(this.inputProtoBin, this.selectProtoClass);
             }
+        },
+        didClickHistory(index) {
+            const selectedHis = this.histories[index];
+            this.inputProtoBin = selectedHis.protoBin;
+            this.selectProtoClass = selectedHis.protoClass;
+
+            this.decode();
         },
 
         async _parseProtoIfNeed() {
@@ -91,13 +118,28 @@ export default {
             const pkg = root.lookup('com.wechat');
 
             this.protoInfo = {
-                "classList" : Object.keys(pkg.nested),
+                "classList" : Object.keys(pkg.nested).sort(),
                 "getClassFunc": (className) => {
                     return pkg.lookup(className);
                 }
             };
 
             return this.protoInfo;
+        },
+
+        _appendHistory(protoBin, protoClass) {
+            const index = this.histories.findIndex((history) => {
+                return history.protoBin === protoBin;
+            });
+
+            if (index !== -1) {
+                this.histories.splice(index, 1);
+            }
+
+            this.histories.unshift({
+                protoClass: protoClass,
+                protoBin: protoBin
+            })
         }
     }
 }
@@ -114,38 +156,50 @@ export default {
 
         display: flex;
         flex-direction: row;
+        align-items: center;
 
-        .pure-button {
-            margin-right: 10px;
+        .button {
+            margin-right: 20px;
         }
 
-        .decode-section {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
+        .select {
+            min-width: 300px;
+        }
 
-            margin-left: 100px;
+        .space {
+            flex-grow: 1;
+        }
 
-            .select {
-                min-width: 300px;
-            }
-
-            .pure-button {
-                margin-left: 10px;
-            }
+        .el-dropdown-link {
+            cursor: pointer;
+            color: #409EFF;
+        }
+        .el-icon-arrow-down {
+            font-size: 12px;
         }
     }
 }
 
 .output {
+    display: flex;
+    flex-direction: row;
     margin-top: 20px;
 
     .json-pretty {
+        overflow-x: scroll;
+
         padding: 10px;
         border: 1px solid #e4e4e4;
         border-radius: 4px;
         background-color: #FCFCFC;
         white-space: nowrap;
+
+        &.two {
+            width: calc(50% - 5px);
+            &:first-child {
+                margin-right: 10px;
+            }
+        }
     }
 }
 

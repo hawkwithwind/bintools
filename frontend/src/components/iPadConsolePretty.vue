@@ -1,8 +1,7 @@
 <template>
     <div>
         <div class="original">
-            <div class="title">Original Log</div>
-            <el-input type="textarea" v-model="originalLog" placeholder="等待输入" :rows="10"></el-input>
+            <el-input type="textarea" v-model="originalLog" placeholder="等待输入原始 log" :rows="10"></el-input>
             <div class="action">
                 <el-button class="pretty-button" type="primary" @click="pretty">pretty</el-button>
                 <el-button type="primary" v-clipboard:copy="prettyLog" v-clipboard:success="onCopy" v-clipboard:error="onError">copy</el-button>
@@ -12,8 +11,7 @@
         </div>
 
         <div class="pretty">
-            <div class="title">Pretty Log</div>
-            <textarea id="pretty_text" v-model="prettyLog" disabled></textarea>
+            <textarea id="pretty_text" v-model="prettyLog" placeholder="等待输出 pretty log" disabled></textarea>
         </div>
     </div>
 </template>
