@@ -1,16 +1,13 @@
 package com.webot.bintools.controllers;
 
+import com.webot.bintools.models.*;
+import com.webot.bintools.tools.PackTool;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.webot.bintools.models.SymDecodeRequest;
-import com.webot.bintools.models.UnpackRequest;
-import com.webot.bintools.models.CommonResponse;
-import com.webot.bintools.models.DecodeResponse;
-import com.webot.bintools.models.EncodeRequest;
 import com.webot.bintools.bo.Decoder;
 import com.webot.bintools.tools.CryptTools;
 import com.webot.bintools.tools.PbTools;
@@ -19,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
 import java.util.Arrays;
+import java.util.Map;
 
 @RestController
 public class CryptoController {
@@ -113,4 +111,21 @@ public class CryptoController {
             return new CommonResponse(e);
         }
     }
+
+    @PostMapping("/headerUnpack")
+    public Object headerUnpack(@RequestBody UnpackHeaderRequest request) throws Exception {
+        try {
+            try {
+                Map parsedPayload = PackTool.parseHeader(request.text);
+                return new CommonResponse("ok", parsedPayload);
+            } catch(Exception e) {
+                Exception ex =  new Exception("pack header 解码失败");
+                ex.initCause(e);
+                throw ex;
+            }
+        } catch(Exception e) {
+            return new CommonResponse(e);
+        }
+    }
+
 }

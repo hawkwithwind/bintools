@@ -1,7 +1,11 @@
 package com.webot.bintools.tools;
 
+import com.wxipad.wechat.tools.proto.ProtoData;
+import com.wxipad.wechat.tools.proto.ProtoException;
 import org.apache.commons.codec.binary.Hex;
-import java.util.Base64; 
+import java.util.Base64;
+
+import static java.lang.Long.parseLong;
 
 public class DecodeTools {
     public static byte[] decodeHex(String text) throws Exception {
@@ -20,5 +24,13 @@ public class DecodeTools {
     public static String encodeBase64(byte[] buffer) {
         Base64.Encoder encoder = Base64.getEncoder();
         return encoder.encodeToString(buffer);
+    }
+
+    public static byte[] decodeVarInt (String text)  {
+        return ProtoData.varint2bytes(parseLong(text));
+    }
+
+    public static String encodeVarInt (byte[] buffer) throws ProtoException {
+        return String.valueOf(ProtoData.bytes2varint64(buffer, 0));
     }
 }

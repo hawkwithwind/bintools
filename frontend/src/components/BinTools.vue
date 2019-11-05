@@ -1,208 +1,209 @@
 <template>
-  <div>  
-    <div class="pure-g content">
-      
-      <div class="pure-u-1-2"> 
-        <div class="pure-g row">
-          <div class="pure-u-1">
-            <el-input type="textarea" :rows="2" placeholder="等待输入" v-model="raw"></el-input>
-          </div>
+  <div class="pure-g content">
+
+    <div class="pure-u-1-2 left">
+      <div class="pure-g row">
+        <div class="pure-u-1">
+          <el-input type="textarea" :rows="2" placeholder="等待输入" v-model="raw"></el-input>
         </div>
-        <div class="pure-g row">
-          <div class="pure-u-1 primary-actions">
-            <button class="pure-button pure-button-primary" v-on:click="saveNumber">
-              数
-            </button>
-            <button class="pure-button pure-button-primary" v-on:click="saveString">
-              串
-            </button>
-            <button class="pure-button pure-button-primary" v-on:click="saveHex">
-              Hex
-            </button>
-            <button class="pure-button pure-button-primary" v-on:click="saveTimestamp">
-              秒
-            </button>
-            <!--
-            <button class="pure-button pure-button-primary" v-on:click="saveB64">
-              B64
-            </button>
-            -->
-            <button class="pure-button pure-button-primary" v-on:click="saveNet">
-              网
-            </button>
-            <button class="pure-button pure-button-primary" v-on:click="saveHandshake">
-              握手
-            </button>
-            <button class="pure-button pure-button-primary" v-on:click="savePb">
-              PB
-            </button>
-            <button class="pure-button pure-button-primary" v-on:click="saveP">
-              P
-            </button>
-          </div>
+      </div>
+      <div class="pure-g row">
+        <div class="pure-u-1 primary-actions">
+          <el-button type="primary" size="mini" v-on:click="saveNumber">
+            数
+          </el-button>
+          <el-button type="primary" size="mini" v-on:click="saveString">
+            串
+          </el-button>
+          <el-button type="primary" size="mini" v-on:click="saveHex">
+            Hex
+          </el-button>
+          <el-button type="primary" size="mini" v-on:click="saveTimestamp">
+            秒
+          </el-button>
+          <!--
+          <button class="pure-button pure-button-primary" v-on:click="saveB64">
+            B64
+          </button>
+          -->
+          <el-button type="primary" size="mini" v-on:click="saveNet">
+            网
+          </el-button>
+          <el-button type="primary" size="mini" v-on:click="saveHandshake">
+            握手
+          </el-button>
+          <el-button type="primary" size="mini" v-on:click="savePb">
+            PB
+          </el-button>
+          <el-button type="primary" size="mini" v-on:click="saveP">
+            P
+          </el-button>
+          <el-button type="primary" size="mini" v-on:click="parseMMPackHeader">
+            PKHeader
+          </el-button>
+        </div>
+      </div>
+
+      <div class="pure-g row">
+        <div class="pure-u-1">
+          <el-select v-model="encode.from" size="small" placeholder="hex">
+            <el-option v-for="item in ['hex', 'base64', 'varint']" :key="item" :label="item" :value="item"></el-option>
+          </el-select>
+
+          <el-select v-model="encode.to" size="small" placeholder="base64">
+            <el-option v-for="item in ['hex', 'base64', 'varint']" :key="item" :label="item" :value="item"></el-option>
+          </el-select>
+
+          <el-button type="primary" size="small" v-on:click="saveEncode">转码</el-button>
+        </div>
+      </div>
+
+      <el-card class="box-card" shadow="hover" :body-style="{padding: '10px'}" data-123>
+        <div slot="header" class="clearfix">
+          <span>加解密</span>
         </div>
 
         <div class="pure-g row">
-          <div class="pure-u-1">
-            <el-select v-model="encode.from" size="medium" placeholder="hex">
+          <div class="pure-u-1 row">
+            <el-select v-model="symdecrypt.codec" size="small" placeholder="hex">
               <el-option v-for="item in ['hex', 'base64']" :key="item" :label="item" :value="item"></el-option>
             </el-select>
 
-            <el-select v-model="encode.to" size="medium" placeholder="base64">
-              <el-option v-for="item in ['hex', 'base64']" :key="item" :label="item" :value="item"></el-option>
+            <el-select v-model="symdecrypt.method" size="small" placeholder="aes/cbc">
+              <el-option v-for="item in ['aes/cbc']" :key="item" :label="item" :value="item"></el-option>
             </el-select>
 
-            <button class="pure-button pure-button-primary" :clearable="false" v-on:click="saveEncode">转码</button>
-          </div>
-        </div>
-
-        <el-card class="box-card" shadow="hover" :body-style="{padding: '10px'}" data-123>
-          <div slot="header" class="clearfix">
-            <span>加解密</span>
-          </div>
-
-          <div class="pure-g row">
-            <div class="pure-u-1 row">
-              <el-select v-model="symdecrypt.codec" size="medium" placeholder="hex">
-                <el-option v-for="item in ['hex', 'base64']" :key="item" :label="item" :value="item"></el-option>
-              </el-select>
-
-              <el-select v-model="symdecrypt.method" size="medium" placeholder="aes/cbc">
-                <el-option v-for="item in ['aes/cbc']" :key="item" :label="item" :value="item"></el-option>
-              </el-select>
-
-              <el-select v-model="symdecrypt.padding" size="medium" placeholder="NoPadding">
-                <el-option v-for="item in ['NoPadding', 'PKCS5Padding', 'PKCS7Padding']" :key="item" :label="item" :value="item"></el-option>
-              </el-select>
-            </div>
-          </div>
-          <div class="pure-g row">
-            <div class="pure-u-1 row">
-              <el-input size="medium"
-                        placeholder="密钥"
-                        :clearable="true"
-                        v-model="symdecrypt.key"></el-input>
-
-              <el-input size="medium"
-                        placeholder="iv"
-                        :clearable="true"
-                        v-model="symdecrypt.iv"></el-input>
-              <button class="pure-button pure-button-primary" v-on:click="saveCryptText">解密</button>
-            </div>
-          </div>
-        </el-card>
-
-        <el-card class="box-card address-calc" shadow="hover" :body-style="{padding: '10px'}" data-123>
-          <div slot="header" class="clearfix">
-            <span>地址计算器</span>
-            <el-button style="float: right; padding: 5px 10px;"
-                       plain
-                       size="medium"
-                       @click="addressCalcAdd">添加</el-button>
-            <el-button style="float: right; padding: 5px 10px; margin-right: 10px;"
-                       plain
-                       size="medium"
-                       icon="el-icon-refresh-right"
-                       @click="addressCalcRefreshImageList">lldb imagelist</el-button>
-          </div>
-
-          <div class="row" v-for="(image, index) in addressCalc.calculations" :key="index">
-            <el-select class="image-select"
-                       v-model="image.imageName"
-                       filterable
-                       size="medium"
-                       placeholder="Image"
-                       @change="addressCalcInputDidChange(index, 'image')">
-              <el-option v-for="item in addressCalc.imageNames"
-                         :key="item"
-                         :label="item"
-                         :value="item">
-              </el-option>
+            <el-select v-model="symdecrypt.padding" size="small" placeholder="NoPadding">
+              <el-option v-for="item in ['NoPadding', 'PKCS5Padding', 'PKCS7Padding']" :key="item" :label="item" :value="item"></el-option>
             </el-select>
-            <el-input class="slide"
-                      size="medium"
-                      placeholder="slide"
-                      :clearable="true"
-                      v-model="image.slide"
-                      @change="addressCalcInputDidChange(index, 'slide')"></el-input>
-            +
-            <el-input class="offset"
-                      size="medium"
-                      :clearable="true"
-                      placeholder="offset"
-                      v-model="image.offset"
-                      @change="addressCalcInputDidChange(index, 'offset')"></el-input>
-            =
-            <div class="result">{{image.result}}</div>
-            <div class="space"/>
-            <el-input class="mark"
-                      size="mini"
-                      placeholder="备注"
-                      v-model="image.mark"
-                      @change="addressCalcInputDidChange(index, 'mark')"></el-input>
-          </div>
-        </el-card>
-
-        <div class="pure-g row">
-          <div class="pure-u-1 value-display" v-if="select.value" style="padding:3px; max-height:200px; border:1px solid black;">
-            {{selected.value}}
           </div>
         </div>
         <div class="pure-g row">
-          <div class="pure-u-2-3 value-display" style="padding:3px">
-            <pre>{{selected.display.left}}</pre>
-          </div>
-          <div class="pure-u-1-3 value-display" style="padding:3px">
-            <pre>{{selected.display.right}}</pre>
+          <div class="pure-u-1 row">
+            <el-input size="small"
+                      placeholder="密钥"
+                      :clearable="true"
+                      v-model="symdecrypt.key"></el-input>
+
+            <el-input size="small"
+                      placeholder="iv"
+                      :clearable="true"
+                      v-model="symdecrypt.iv"></el-input>
+            <el-button type="primary" size="small" v-on:click="saveCryptText">解密</el-button>
           </div>
         </div>
-      </div> <!-- pack & unpack -->
-      <div class="pure-u-1-2"><!-- right -->
-        <div class="pure-g row" ref="logwindow" style="height:300px;overflow:auto;"><!--log-->
-          <div class="pure-u-1">
-            <pre>{{logtext}}</pre>
+      </el-card>
+
+      <el-card class="box-card address-calc" shadow="hover" :body-style="{padding: '10px'}" data-123>
+        <div slot="header" class="clearfix">
+          <span>地址计算器</span>
+          <el-button style="float: right; padding: 5px 10px;"
+                     plain
+                     size="small"
+                     @click="addressCalcAdd">添加</el-button>
+          <el-button style="float: right; padding: 5px 10px; margin-right: 10px;"
+                     plain
+                     size="small"
+                     icon="el-icon-refresh-right"
+                     @click="addressCalcRefreshImageList">lldb imagelist</el-button>
+        </div>
+
+        <div class="row" v-for="(image, index) in addressCalc.calculations" :key="index">
+          <el-select class="image-select"
+                     v-model="image.imageName"
+                     filterable
+                     size="small"
+                     placeholder="Image"
+                     @change="addressCalcInputDidChange(index, 'image')">
+            <el-option v-for="item in addressCalc.imageNames"
+                       :key="item"
+                       :label="item"
+                       :value="item">
+            </el-option>
+          </el-select>
+          <el-input class="slide"
+                    size="small"
+                    placeholder="slide"
+                    :clearable="true"
+                    v-model="image.slide"
+                    @change="addressCalcInputDidChange(index, 'slide')"></el-input>
+          +
+          <el-input class="offset"
+                    size="small"
+                    :clearable="true"
+                    placeholder="offset"
+                    v-model="image.offset"
+                    @change="addressCalcInputDidChange(index, 'offset')"></el-input>
+          =
+          <div class="result">{{image.result}}</div>
+          <div class="space"/>
+          <el-input class="mark"
+                    size="mini"
+                    placeholder="备注"
+                    v-model="image.mark"
+                    @change="addressCalcInputDidChange(index, 'mark')"></el-input>
+        </div>
+      </el-card>
+
+      <div class="pure-g row">
+        <div class="pure-u-1 value-display" v-if="select.value" style="padding:3px; max-height:200px; border:1px solid black;">
+          {{selected.value}}
+        </div>
+      </div>
+      <div class="pure-g row">
+        <div class="pure-u-1-2 value-display" style="padding:3px">
+          <pre>{{selected.display.left}}</pre>
+        </div>
+        <div class="pure-u-1-2 value-display" style="padding:3px">
+          <pre>{{selected.display.right}}</pre>
+        </div>
+      </div>
+    </div> <!-- pack & unpack -->
+    <div class="pure-u-1-2 right"><!-- right -->
+      <div class="pure-g row top" ref="logwindow"><!--log-->
+        <div class="pure-u-1">
+          <pre>{{logtext}}</pre>
+        </div>value
+      </div><!--log-->
+      <div class="pure-g row bottom" ><!--value list-->
+        <div class="pure-u-1">
+          <div class="value">
+            <ul id="value-list">
+              <li v-for="item in items" @on:click="select(item)" v-bind:key="item.id">
+                <span v-if="item.valuetype == 'number'">
+                  <span class="main-value">{{item.valueb10}}</span>
+                  <span class="sub-value">{{item.valueb16}}</span>
+                </span>
+                <span v-if="item.valuetype == 'buffer'">
+                  <span class="main-value"><code style="background-color:#dcdcdc;">
+                      {{item.valuestr}}</code></span><br/>
+                  <span class="sub-value">{{item.valueb16}}</span>
+                </span>
+                <span v-if="item.valuetype == 'time'">
+                  <span class="main-value"><code style="background-color:#dcdcdc;">
+                      {{item.valuestr}}</code></span><br/>
+                  <span class="sub-value">{{item.valueb16}}</span>
+                </span>
+                <span v-if="item.valuetype == 'netbuffer'">
+                  {{item.valuenettype}} :
+                  <span class="main-value"><code style="background-color:#dcdcdc;">
+                      {{item.valuestr}}</code></span><br/>
+                  <span class="sub-value">{{item.valueb16}}</span>
+                </span>
+                <span v-if="item.valuetype == 'handshake'">
+                  <span class="main-value"><code style="background-color:#dcdcdc;">
+                      {{item.value16}}</code></span><br/>
+                  <span class="sub-value">{{item.valueb16}}</span>
+                </span>
+                <span v-if="item.valuetype == 'calc'">
+                  <span class="main-value">{{item.valuestr}}<span class="mark" v-if="item.mark">({{item.mark}})</span></span>
+                </span>
+              </li>
+            </ul>
           </div>
-        </div><!--log-->
-        <div class="pure-g row right-log" ><!--value list-->
-          <div class="pure-u-1">
-            <div class="value">
-              <ul id="value-list">
-                <li v-for="item in items" @on:click="select(item)" v-bind:key="item.id">
-                  <span v-if="item.valuetype == 'number'">
-                    <span class="main-value">{{item.valueb10}}</span>
-                    <span class="sub-value">{{item.valueb16}}</span>
-                  </span>
-                  <span v-if="item.valuetype == 'buffer'">
-                    <span class="main-value"><code style="background-color:#dcdcdc;">
-                        {{item.valuestr}}</code></span><br/>
-                    <span class="sub-value">{{item.valueb16}}</span>
-                  </span>
-                  <span v-if="item.valuetype == 'time'">
-                    <span class="main-value"><code style="background-color:#dcdcdc;">
-                        {{item.valuestr}}</code></span><br/>
-                    <span class="sub-value">{{item.valueb16}}</span>
-                  </span>
-                  <span v-if="item.valuetype == 'netbuffer'">
-                    {{item.valuenettype}} : 
-                    <span class="main-value"><code style="background-color:#dcdcdc;">
-                        {{item.valuestr}}</code></span><br/>
-                    <span class="sub-value">{{item.valueb16}}</span>
-                  </span>
-                  <span v-if="item.valuetype == 'handshake'">
-                    <span class="main-value"><code style="background-color:#dcdcdc;">
-                        {{item.value16}}</code></span><br/>
-                    <span class="sub-value">{{item.valueb16}}</span>
-                  </span>
-                  <span v-if="item.valuetype == 'calc'">
-                    <span class="main-value">{{item.valuestr}}<span class="mark" v-if="item.mark">({{item.mark}})</span></span>
-                  </span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div><!--value list-->
-      </div><!-- right -->
-    </div>
+        </div>
+      </div><!--value list-->
+    </div><!-- right -->
   </div>
 </template>
 
@@ -873,6 +874,37 @@ export default {
       });
 
       this.$message.success('更新成功');
+    },
+
+    async parseMMPackHeader() {
+      let resp = await axios({
+        method: 'POST',
+        url: '/headerUnpack',
+        data: {
+           text: this.raw
+        },
+      });
+
+      let retdata =resp.data;
+      if (retdata && retdata.result && retdata.message === "ok") {
+        const item = {
+          value: this.raw,
+          valuetype: 'buffer',
+          valuestr: this.raw,
+          valueb16: retdata.result,
+          display: {
+            left: this.raw,
+            right: retdata.result,
+          }
+        };
+
+        this.items.push(item);
+        this.raw = '';
+        this.selected = this.items[this.items.length-1];
+      } else {
+        apiErrorLog(this, retdata);
+        return null
+      }
     }
   }
 }
@@ -880,9 +912,40 @@ export default {
 
 <!-- Add "scoped" attribute to limit CSS to this component only -->
 <style scoped lang="scss">
+
+.content {
+  height: 100%;
+
+  .left {
+    height: 100%;
+  }
+
+  .right {
+    box-sizing: border-box;
+    height: 100%;
+    padding: 0px 20px;
+
+    .top {
+      border: 1px solid #DCDFE6;
+      height: 200px;
+      overflow-y: scroll;
+      padding: 10px;
+      border-radius: 4px;
+    }
+
+    .bottom {
+      box-sizing: content-box;
+      border: 1px solid #DCDFE6;
+      height: calc(100% - 220px);
+      padding: 10px;
+      border-radius: 4px;
+    }
+  }
+}
+
 .primary-actions {
-  .pure-button {
-    margin-right: 10px;
+  ::v-deep .el-button {
+    font-size: 13px;
   }
 }
 
@@ -935,8 +998,7 @@ li::before {
 .value {
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-  width: 600px;
+  overflow-x: scroll;
 }
 
 .main-value {
@@ -990,13 +1052,6 @@ pre {
   .image-select {
     width: 100px;
     margin-right: 10px;
-  }
-}
-
-.right-log {
-  .mark {
-    margin-left: 4px;
-    color: #8c939d;
   }
 }
 </style>
