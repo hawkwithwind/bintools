@@ -119,7 +119,8 @@
                          :value="item">
               </el-option>
             </el-select>
-            <el-input size="medium"
+            <el-input class="slide"
+                      size="medium"
                       placeholder="slide"
                       :clearable="true"
                       v-model="image.slide"
@@ -966,12 +967,16 @@ pre {
 }
 
 .address-calc {
+  .slide {
+    width: 150px;
+  }
   .offset {
+    width: 100px;
     margin-left: 10px;
   }
 
   .mark {
-    width: 60px;
+    width: 220px;
 
     ::v-deep .el-input__inner {
       padding: 0 4px;
