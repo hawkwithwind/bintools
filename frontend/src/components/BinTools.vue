@@ -108,9 +108,9 @@
                      @click="addressCalcRefreshImageList">lldb imagelist</el-button>
         </div>
 
-        <div class="row" v-for="(image, index) in addressCalc.calculations" :key="index">
+        <div class="row" v-for="(calcItem, index) in addressCalc.calculations" :key="index">
           <el-select class="image-select"
-                     v-model="image.imageName"
+                     v-model="calcItem.imageName"
                      filterable
                      size="small"
                      placeholder="Image"
@@ -121,26 +121,49 @@
                        :value="item">
             </el-option>
           </el-select>
-          <el-input class="slide"
-                    size="small"
-                    placeholder="slide"
-                    :clearable="true"
-                    v-model="image.slide"
-                    @change="addressCalcInputDidChange(index, 'slide')"></el-input>
-          +
-          <el-input class="offset"
-                    size="small"
-                    :clearable="true"
-                    placeholder="offset"
-                    v-model="image.offset"
-                    @change="addressCalcInputDidChange(index, 'offset')"></el-input>
+          <template v-if="calcItem.operator === 'plus'">
+            <el-input class="slide"
+                      size="small"
+                      placeholder="slide"
+                      :clearable="true"
+                      v-model="calcItem.slide"
+                      @change="addressCalcInputDidChange(index, 'slide')"></el-input>
+            <el-button class="operator"
+                       size="small"
+                       icon="el-icon-plus"
+                       @click="addressCalcInputDidChange(index, 'operator')"></el-button>
+            <el-input class="offset"
+                      size="small"
+                      :clearable="true"
+                      placeholder="offset"
+                      v-model="calcItem.offset"
+                      @change="addressCalcInputDidChange(index, 'offset')"></el-input>
+          </template>
+          <template v-else>
+            <el-input class="offset"
+                      size="small"
+                      :clearable="true"
+                      placeholder="ALSR Addr"
+                      v-model="calcItem.offset"
+                      @change="addressCalcInputDidChange(index, 'offset')"></el-input>
+            <el-button class="operator" s
+                       ize="small"
+                       icon="el-icon-minus"
+                       @click="addressCalcInputDidChange(index, 'operator')"></el-button>
+            <el-input class="slide"
+                      size="small"
+                      placeholder="slide"
+                      :clearable="true"
+                      v-model="calcItem.slide"
+                      @change="addressCalcInputDidChange(index, 'slide')"></el-input>
+          </template>
           =
-          <div class="result">{{image.result}}</div>
+          <div class="result">{{calcItem.result}}</div>
           <div class="space"/>
           <el-input class="mark"
                     size="mini"
                     placeholder="备注"
-                    v-model="image.mark"
+                    v-model="calcItem.mark"
                     @change="addressCalcInputDidChange(index, 'mark')"></el-input>
         </div>
       </el-card>
@@ -691,6 +714,7 @@ export default {
       addressCalc: {
         calculations: [{
           imageName: null,
+          operator: "plus",
           slide: null,
           offset: null,
           result: null,
@@ -800,6 +824,7 @@ export default {
     },
     addressCalcAdd() {
       this.addressCalc.calculations.push({
+        operator: 'plus',
         slide: null,
         offset: null,
         result: null,
@@ -810,10 +835,19 @@ export default {
       if (calculation.slide && calculation.offset) {
         const slideInt = parseInt(calculation.slide, 16);
         const offsetInt = parseInt(calculation.offset, 16);
-        calculation.result = '0x' + (slideInt + offsetInt).toString(16);
+
+        let valueStr = '';
+
+        if (calculation.operator === 'plus') {
+          calculation.result = '0x' + (slideInt + offsetInt).toString(16);
+          valueStr = `0x${slideInt.toString(16)} + 0x${offsetInt.toString(16)} = ${calculation.result}`;
+        } else {
+          calculation.result = '0x' + (offsetInt - slideInt).toString(16);
+          valueStr = `0x${offsetInt.toString(16)} - 0x${slideInt.toString(16)} = ${calculation.result}`;
+        }
 
         this.items.push({
-          valuestr: `0x${slideInt.toString(16)} + 0x${offsetInt.toString(16)} = ${calculation.result}`,
+          valuestr: valueStr,
           mark: calculation.mark,
           valuetype: 'calc',
         })
@@ -825,6 +859,14 @@ export default {
 
       if (type === 'image') {
         calculation.slide = this.addressCalc.imageSlideDict[calculation.imageName];
+      }
+      else if (type === 'operator') {
+        if (calculation.operator === 'plus') {
+          calculation.operator = 'minus';
+        }
+        else {
+          calculation.operator = 'plus';
+        }
       }
 
       this._addressCalcUpdate(calculation);
@@ -924,6 +966,9 @@ export default {
     box-sizing: border-box;
     height: 100%;
     padding: 0px 20px;
+
+    font-size: 13px;
+    font-family: "Helvetica Neue", Helvetica, serif;
 
     .top {
       border: 1px solid #DCDFE6;
@@ -1029,29 +1074,51 @@ pre {
 }
 
 .address-calc {
-  .slide {
-    width: 150px;
-  }
-  .offset {
-    width: 100px;
-    margin-left: 10px;
-  }
+  .row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
 
-  .mark {
-    width: 220px;
+    .image-select {
+      width: 100px;
+      margin-right: 10px;
+    }
 
-    ::v-deep .el-input__inner {
-      padding: 0 4px;
+    .slide {
+      width: 130px;
+    }
+
+    .offset {
+      width: 130px;
+    }
+
+    .operator {
+      ::v-deep &.el-button {
+        font-size: 15px;
+        font-weight: bold;
+        padding: 8px 8px;
+        border:unset;
+        margin-right: 4px;
+        margin-left: -6px;
+      }
+    }
+
+    .result {
+      margin-left: 10px;
+      font-family: "Helvetica Neue", Helvetica,serif;
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    .mark {
+      width: 220px;
+
+      ::v-deep .el-input__inner {
+        padding: 0 4px;
+        border-color: #f0f0f0;
+      }
     }
   }
 
-  .result {
-    margin-left: 10px;
-  }
-
-  .image-select {
-    width: 100px;
-    margin-right: 10px;
-  }
 }
 </style>
