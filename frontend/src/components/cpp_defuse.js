@@ -2,46 +2,27 @@ const fs = require('fs');
 
 const content = fs.readFileSync("./didAddDyldImage_104B8768C.cpp", {encoding: 'utf8'});
 
-// function tokenize(str) {
-//     let result = [];
-//
-//     const splitReg = () => {
-//         const operators = ['\\(', '\\)', '\\{', '\\}', '\\+', '\\+\\+', '\\-', '\\-\\-', '\\*', '/', '%', '=', '==', '!=', '>', '>=', '<', '<=', '\\+=', '\\-=', '\\*=', '/=', '%=', '<<=', '>>=', '&=', '^=', '\\|=', '\\!', '~', '\\^', '&', '&&', '\\|', '\\|\\|', '>>', '<<', '\\?', '\\:\\:', '\\:', '\\,', '\\;'];
-//
-//         operators.sort((a, b) => {
-//             return a.length === b.length ? 0 : ((a.length > b.length) ? -1 : 1);
-//         });
-//
-//         let regStr = operators.map((op => {
-//             return `(${op})`;
-//         })).join("|");
-//
-//         return new RegExp(`\\s|${regStr}`, 'g');
-//     };
-//
-//     const regex = splitReg();
-//
-//
-//     const lines = str.split('\n');
-//     for (let line of lines) {
-//         const commentIndex = line.indexOf("//");
-//         if (-1 !== commentIndex) {
-//             line = line.substring(0, commentIndex);
-//         }
-//
-//         const lineTokens = line.split(regex).filter(c => c && c.length);
-//         result = result.concat(lineTokens);
-//     }
-//
-//     return result;
-// }
-
-// const tokens = tokenize(content);
+const ASTNodeType = {
+    DO: 'do',
+    WHILE: 'while',
+    IF: 'if',
+    ELSE: 'else',
+    ELSEIF: 'elseif',
+    SWITCH: 'switch',
+    CASE: 'case',
+    BREAK: 'break',
+    CURLY_BRACE_L: '{',
+    CURLY_BRACE_R: '}',
+    GOTO: 'goto',
+    TEXT: 'text',
+    LABEL: 'label'
+};
 
 class ASTNode {
     constructor(type) {
         this.type = type;
         this.condition = null;
+        this.parsedCondition = null;
         this.single = true;
         this.lines = [];
 
@@ -93,7 +74,6 @@ class ASTNode {
     }
 }
 
-
 class ASTNodeParser {
     constructor() {
         this.astNodeStack = [];
@@ -102,17 +82,17 @@ class ASTNodeParser {
         this.labelNodeCache = {};
 
         this.conditionalRegexMap = {
-            'do': /do/,
-            'while': /while\s*\((.*)\).*?(;)?/,
-            'elseif': /else if\s*\((.*)\)/,
-            'if': /if\s*\((.*)\)/,
-            'else': /else/,
-            'switch': /switch\s*\((.*)\)/,
-            'case': /case\s*([^:]+)\s*:/,
-            'break' : /break/,
-            "{": /\{/,
-            "}": /\}/,
-            "goto": /goto\s*(.*?)\s*;/
+            [ASTNodeType.DO]: /do/,
+            [ASTNodeType.WHILE]: /while\s*\((.*)\).*?(;)?/,
+            [ASTNodeType.ELSEIF]: /else if\s*\((.*)\)/,
+            [ASTNodeType.IF]: /if\s*\((.*)\)/,
+            [ASTNodeType.ELSE]: /else/,
+            [ASTNodeType.SWITCH]: /switch\s*\((.*)\)/,
+            [ASTNodeType.CASE]: /case\s*([^:]+)\s*:/,
+            [ASTNodeType.BREAK] : /break/,
+            [ASTNodeType.CURLY_BRACE_L]: /\{/,
+            [ASTNodeType.CURLY_BRACE_R]: /\}/,
+            [ASTNodeType.GOTO]: /goto\s*(.*?)\s*;/
         };
     }
 
@@ -140,21 +120,25 @@ class ASTNodeParser {
             const commaTerminator = ret[2];
 
             switch (type) {
-                case "{":
+                case ASTNodeType.CURLY_BRACE_L:
                     this.currentNode.single = false;
                     return;
 
-                case "}":
+                case ASTNodeType.CURLY_BRACE_R:
                     this._popNode();
                     return;
 
-                case "break":
-                    if (this.currentNode.type === 'case') {
+                case ASTNodeType.BREAK:
+                    if (this.currentNode.type === ASTNodeType.CASE) {
                         // end case
                         this._popNode();
                     }
-                    else if (this.currentNode.type === 'if' || this.currentNode.type === 'elseif' || this.currentNode.type === 'else') {
-                        this._pushNode(new ASTNode("break"));
+                    else if (
+                        this.currentNode.type === ASTNodeType.IF ||
+                        this.currentNode.type === ASTNodeType.ELSEIF ||
+                        this.currentNode.type === ASTNodeType.ELSE
+                    ) {
+                        this._pushNode(new ASTNode(ASTNodeType.BREAK));
                         this._popNode();
 
                         if (this.currentNode.single) {
@@ -168,9 +152,9 @@ class ASTNodeParser {
 
                     return;
 
-                case 'goto':
-                    if (this.currentNode.type === 'case') {
-                        const gotoNode = new ASTNode("goto");
+                case ASTNodeType.GOTO:
+                    if (this.currentNode.type === ASTNodeType.CASE) {
+                        const gotoNode = new ASTNode(ASTNodeType.GOTO);
                         gotoNode.condition = condition;
                         this._pushNode(gotoNode);
                         this._popNode();
@@ -178,8 +162,12 @@ class ASTNodeParser {
                         // end case
                         this._popNode();
                     }
-                    else if (this.currentNode.type === 'if' || this.currentNode.type === 'elseif' || this.currentNode.type === 'else') {
-                        const gotoNode = new ASTNode("goto");
+                    else if (
+                        this.currentNode.type === ASTNodeType.IF ||
+                        this.currentNode.type === ASTNodeType.ELSEIF ||
+                        this.currentNode.type === ASTNodeType.ELSE
+                    ) {
+                        const gotoNode = new ASTNode(ASTNodeType.GOTO);
                         gotoNode.condition = condition;
                         this._pushNode(gotoNode);
                         this._popNode();
@@ -194,11 +182,11 @@ class ASTNodeParser {
                     }
                     return;
 
-                case 'while':
+                case ASTNodeType.WHILE:
                     // 只有 do while 时候，while 后 才会有 comma
                     if (commaTerminator) {
                         const siblingNode = this.currentNode.getLastChild();
-                        if (siblingNode.type !== 'do') {
+                        if (siblingNode.type !== ASTNodeType.DO) {
                             this._terminate("illegal while with comma", line, index);
                         }
 
@@ -303,9 +291,21 @@ class ASTNodeParser {
         return null;
     };
 
+    _visitNode(node, visit) {
+        if (!node) {
+            return;
+        }
+
+        if (!visit(node)) {
+            node.children.forEach(childNode => {
+                this._visitNode(childNode, visit);
+            })
+        }
+    }
+
     __processTextNodeLineWithRegex(rootNode, regex, handler) {
-        const visit = (node) => {
-            if (node.type === 'text') {
+        this._visitNode(rootNode, (node) => {
+            if (node.type === ASTNodeType.TEXT) {
                 let targetLineFound = false;
 
                 const newChildren = [];
@@ -352,21 +352,19 @@ class ASTNodeParser {
                         console.error("unexpected null parent");
                     }
                 }
-            } else {
-                node.children.forEach(childNode => {
-                    visit(childNode);
-                })
-            }
-        };
 
-        visit(rootNode);
+                return true;
+            }
+
+            return false;
+        });
     }
 
     _parseLabel(rootNode) {
         const labelRegex = /(LABEL_\d+?):/;
 
         this.__processTextNodeLineWithRegex(rootNode, labelRegex, (newNode, matches) => {
-            newNode.type = "label";
+            newNode.type = ASTNodeType.LABEL;
             newNode.condition = matches[1];
 
             this.labelNodeCache[newNode.condition] = newNode;
@@ -374,8 +372,8 @@ class ASTNodeParser {
     }
 
     _linkLabel(rootNode) {
-        const visit = (node) => {
-            if (node.type === 'goto') {
+        this._visitNode(rootNode,  (node) => {
+            if (node.type === ASTNodeType.GOTO) {
                 const targetLabelNode = this.labelNodeCache[node.condition];
                 if (!targetLabelNode) {
                     this._terminate("can not find label for goto: " + node.condition);
@@ -383,25 +381,279 @@ class ASTNodeParser {
 
                 //注意：实现细节， label 是 goto 的 child， 但是并不是 goto 反过来并不是 label 的 parent, 有问题了再说。
                 node.children = [targetLabelNode];
-            }
-            else {
-                node.children.forEach(childNode => {
-                    visit(childNode);
-                })
-            }
-        };
 
-        visit(rootNode);
+                return true;
+            }
+
+            return false;
+        })
+    }
+
+    _parseCondition(rootNode) {
+        const conditionNodeTypes = [
+            ASTNodeType.DO,
+            ASTNodeType.WHILE,
+            ASTNodeType.IF,
+            ASTNodeType.ELSEIF,
+            ASTNodeType.SWITCH,
+        ];
+
+        // const parseExpr = (text, index) => {
+        //
+        // };
+        //
+        // const parseBrace = (text, index) => {
+        //
+        // };
+        //
+        // const parseUnary = (text, index) => {
+        //
+        // };
+        //
+        // const parseBinary = (text, index) => {
+        //
+        // };
+
+
+
+
+
+
+        this._visitNode(rootNode, (node) => {
+            if (conditionNodeTypes.indexOf(node.type) !== -1) {
+                node.parsedCondition = parse(node.condition, 0);
+                return true;
+            }
+            return false;
+        });
     }
 }
 
 function process(content) {
     const parser = new ASTNodeParser();
     const rootNode = parser.parse(content);
-
-
-
     rootNode.print();
 }
 
-process(content);
+const ExprNodeType = {
+    VAR: 'var',
+    CONST: 'const',
+    BINARY_OPERATOR: 'binary_operator',
+    UNARY_OPERATOR: 'unary_operator',
+    FUNCTION: 'function',
+    BRACE_L: '(',
+    BRACE_R: ')',
+    COMMA: ',',
+    GROUP: 'group'
+};
+
+class ExprNode {
+    constructor (type, val = null) {
+        this.type = type;
+        this.val = val;
+        this.children = [];
+    }
+}
+
+const parse = (condition) => {
+    const binaryOperators = [ '+', '-', '>', '<', '>=', '<=', '==', '!=','*', '/', '%', '<<', '>>', '&&', '||', '&', '|', '^'];
+    const unaryOperators = ['!', '~']; // ignore ++ --
+    const operatorsPriority = {
+        "(": 0,
+        '++': 1,
+        '--': 1,
+        '!': 1,
+        '~': 1,
+        '*': 2,
+        '/': 2,
+        '%': 2,
+        '+': 3,
+        '-': 3,
+        '<<': 4,
+        '>>': 4,
+        '>': 5,
+        '<': 5,
+        '>=': 5,
+        '<=': 5,
+        '==': 6,
+        '!=': 6,
+        '^': 7,
+        '&': 8,
+        '|': 9,
+        '&&': 10,
+        '||': 11,
+        ',': 100,
+    };
+
+    const splitReg = () => {
+        const operators = ['\\(', '\\)', '\\{', '\\}', '\\+', '\\+\\+', '\\-', '\\-\\-', '\\*', '/', '%', '=', '==', '!=', '>', '>=', '<', '<=', '\\+=', '\\-=', '\\*=', '/=', '%=', '<<=', '>>=', '&=', '^=', '\\|=', '\\!', '~', '\\^', '&', '&&', '\\|', '\\|\\|', '>>', '<<', '\\?', '\\:\\:', '\\:', '\\,', ';'];
+
+        operators.sort((a, b) => {
+            return a.length === b.length ? 0 : ((a.length > b.length) ? -1 : 1);
+        });
+
+        let regStr = operators.map((op => {
+            return `(${op})`;
+        })).join("|");
+
+        return new RegExp(`\\s|${regStr}`, 'g');
+    };
+    const regex = splitReg();
+
+    const tokens = condition.split(regex).filter(c => c && c.length);
+
+    const isBinaryOperator = (token) => {
+        return binaryOperators.indexOf(token) !== -1;
+    };
+    const isUnaryOperator = (token) => {
+        return unaryOperators.indexOf(token) !== -1;
+    };
+    const isOperator = (token) => {
+        return isBinaryOperator(token) || isUnaryOperator(token) || token === ',' || token === '('  || token === ')';
+    };
+
+    const isNodeOperatorPrior = (nodeA, nodeB) => {
+        return operatorsPriority[nodeA.val] <= operatorsPriority[nodeB.val];
+    };
+
+    const parseTokens = (tokens) => {
+        const operatorStack = [];
+        const nodeStack = [];
+
+        const commitOperatorStack = (until) => {
+            while (operatorStack.length) {
+                const topOperator = operatorStack[operatorStack.length - 1];
+                if (until(topOperator)) {
+                    operatorStack.length -= 1;
+
+                    if (isBinaryOperator(topOperator)) {
+                        topOperator.children = nodeStack.splice(nodeStack.length - 2, 2);
+                        nodeStack.push(topOperator);
+                    }
+                    else if (isUnaryOperator(topOperator)) {
+                        topOperator.children = nodeStack.splice(nodeStack.length - 1, 1);
+                        nodeStack.push(topOperator)
+                    }
+                    else {
+                        // skip
+                    }
+                }
+                else {
+                    break;
+                }
+            }
+        };
+
+        let index = 0;
+        while (index < tokens.length) {
+            const t = tokens[index];
+
+            if (isBinaryOperator(t)) {
+                const binaryNode = new ExprNode(ExprNodeType.BINARY_OPERATOR, t);
+
+                commitOperatorStack((topOperator) => {
+                    return isNodeOperatorPrior(topOperator, binaryNode);
+                });
+
+                operatorStack.push(binaryNode);
+            }
+            else if (isUnaryOperator(t)) {
+                operatorStack.push(new ExprNode(ExprNodeType.UNARY_OPERATOR, t));
+            }
+            else if (t === ExprNodeType.BRACE_L) {
+
+            }
+            else if (t === ExprNodeType.BRACE_R) {
+                const children = [];
+                commitOperatorStack((topOperator) => {
+                    if (topOperator.type === ExprNodeType.COMMA) {
+                        children.unshift(nodeStack.pop());
+                    }
+                    else if (topOperator.type === ExprNodeType.BRACE_L) {
+                        children.unshift(nodeStack.pop());
+
+                        const functionNode = nodeStack[nodeStack.length - 1];
+                        if (functionNode && functionNode.type === ExprNodeType.FUNCTION) {
+                            functionNode.children = children;
+                        }
+                        else {
+                            // 避免只有一个 child 的 group node
+                            if (children.length === 1) {
+                                nodeStack.push(children[0]);
+                            }
+                            else {
+                                const groupNode = new ExprNode(ExprNodeType.GROUP);
+                                groupNode.children = children;
+                                nodeStack.push(groupNode);
+                            }
+                        }
+                    }
+                    else {
+
+                    }
+
+                    return topOperator.type !== ExprNodeType.BRACE_L;
+                });
+            }
+            else if (t === ExprNodeType.COMMA) {
+                operatorStack.push(new ExprNode(ExprNodeType.COMMA));
+            }
+            else {
+                let node = null;
+
+                const decimalNumberReg = /^[-+]?[0-9]+(\.[0-9]+)?$/;
+                const decimalMatches = decimalNumberReg.exec(t);
+                if (decimalMatches) {
+                    node = new ExprNode(ExprNodeType.CONST, parseInt(t));
+                }
+                else {
+                    const hexNumberReg = /^0([xX])[0-9a-fA-F]+$/;
+                    const hexMatches = hexNumberReg.exec(t);
+                    if (hexMatches) {
+                        node = new ExprNode(ExprNodeType.CONST, parseInt(t, 16));
+                    }
+                    else {
+                        const stringReg = /^['"](\w+)['"]$/;
+                        const stringMatches = stringReg.exec(t);
+                        if (stringMatches) {
+                            node = new ExprNode(ExprNodeType.CONST, stringMatches[1]);
+                        }
+                        else {
+                            node = new ExprNode(ExprNodeType.VAR, t);
+                        }
+                    }
+                }
+
+                if (!node) {
+                    console.error("nil node");
+                }
+
+                const nextToken = tokens[index + 1];
+                if (nextToken === ExprNodeType.BRACE_L) {
+                    node.type = ExprNodeType.FUNCTION;
+                }
+
+                nodeStack.push(node);
+            }
+
+            index++
+        }
+
+        commitOperatorStack((topOperator) => {
+            return !!topOperator;
+        })
+
+        return nodeStack[0];
+    };
+
+    console.log(tokens);
+
+    const rootNode = parseTokens(tokens);
+    console.log(rootNode);
+};
+
+parse(' SHIDWORD(main_controlflow) > (signed int) 0xBA54DE18 ');
+// parse(' v15 ^ v16 ');
+// parse('  (dword_108782370 - 1) * dword_108782370 & 1 ');
+// parse('a * INT(b + c, d) - e')
+// parse('a * ~INT(~(b + c), d) - e')
