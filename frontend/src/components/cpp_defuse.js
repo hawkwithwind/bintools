@@ -2,6 +2,253 @@ const fs = require('fs');
 
 const content = fs.readFileSync("./didAddDyldImage_104B8768C.cpp", {encoding: 'utf8'});
 
+const ExprNodeType = {
+    VAR: 'var',
+    CONST: 'const',
+    BINARY_OPERATOR: 'binary_operator',
+    UNARY_OPERATOR: 'unary_operator',
+    FUNCTION: 'function',
+    BRACE: '()',
+    GROUP: 'group'
+};
+
+class ExprNode {
+    constructor (type, val = null) {
+        this.type = type;
+        this.val = val;
+        this.children = null;
+        this.decorator = null;
+    }
+}
+
+class ExprNodeParser {
+    parse (condition) {
+        const binaryOperators = [ '+', '-', '>', '<', '>=', '<=', '==', '!=','*', '/', '%', '<<', '>>', '&&', '||', '&', '|', '^'];
+        const unaryOperators = ['!', '~']; // ignore ++ --
+        const operatorsPriority = {
+            "(": 0,
+            '++': 1,
+            '--': 1,
+            '!': 1,
+            '~': 1,
+            '*': 2,
+            '/': 2,
+            '%': 2,
+            '+': 3,
+            '-': 3,
+            '<<': 4,
+            '>>': 4,
+            '>': 5,
+            '<': 5,
+            '>=': 5,
+            '<=': 5,
+            '==': 6,
+            '!=': 6,
+            '^': 7,
+            '&': 8,
+            '|': 9,
+            '&&': 10,
+            '||': 11,
+            ',': 100,
+        };
+
+        const splitReg = () => {
+            const operators = ['\\(', '\\)', '\\{', '\\}', '\\+', '\\+\\+', '\\-', '\\-\\-', '\\*', '/', '%', '=', '==', '!=', '>', '>=', '<', '<=', '\\+=', '\\-=', '\\*=', '/=', '%=', '<<=', '>>=', '&=', '^=', '\\|=', '\\!', '~', '\\^', '&', '&&', '\\|', '\\|\\|', '>>', '<<', '\\?', '\\:\\:', '\\:', '\\,', ';'];
+
+            operators.sort((a, b) => {
+                return a.length === b.length ? 0 : ((a.length > b.length) ? -1 : 1);
+            });
+
+            let regStr = operators.map((op => {
+                return `(${op})`;
+            })).join("|");
+
+            return new RegExp(`\\s|${regStr}`, 'g');
+        };
+        const regex = splitReg();
+
+        const tokens = condition.split(regex).filter(c => c && c.length);
+
+        const isBinaryOperator = (token) => {
+            return binaryOperators.indexOf(token) !== -1;
+        };
+        const isUnaryOperator = (token) => {
+            return unaryOperators.indexOf(token) !== -1;
+        };
+        const isOperator = (token) => {
+            return isBinaryOperator(token) || isUnaryOperator(token) || token === ',' || token === '('  || token === ')';
+        };
+
+        const isNodeOperatorPrior = (nodeA, nodeB) => {
+            return operatorsPriority[nodeA.val] <= operatorsPriority[nodeB.val];
+        };
+
+        const parseTokens = (tokens, tokenIndex, stopToken) => {
+            const operatorStack = [];
+            let nodeStack = [];
+
+            const commitOperatorStack = (until, finalRound = false) => {
+                while (operatorStack.length) {
+                    const topOperator = operatorStack[operatorStack.length - 1];
+                    if (until(topOperator)) {
+                        operatorStack.pop();
+
+                        if (isBinaryOperator(topOperator.val)) {
+                            const tmp = nodeStack.splice(nodeStack.length - 3, 3);
+                            topOperator.children = [tmp[0], tmp[2]];
+                            nodeStack.push(topOperator);
+                        }
+                        else if (isUnaryOperator(topOperator.val)) {
+                            const tmp = nodeStack.splice(nodeStack.length - 2, 2);
+                            topOperator.children = tmp[1];
+                            nodeStack.push(topOperator)
+                        }
+                        else {
+                            break;
+                            // skip
+                        }
+                    }
+                    else {
+                        break;
+                    }
+                }
+
+                // 已经没有没有 operator，但是 node 中仍然有多个，那么将这些 node 合并起来。比如 (unsigned int)
+                if (finalRound && !operatorStack.length && nodeStack.length > 1) {
+                    let allVar = true;
+                    nodeStack.forEach(node => {
+                        if (node.type !== ExprNodeType.VAR) {
+                            allVar = false;
+                        }
+                    });
+
+                    if (allVar) {
+                        const newNode = new ExprNode(ExprNodeType.VAR);
+                        newNode.val = nodeStack.map((node) => node.val).join(" ");
+                        nodeStack = [newNode];
+                    }
+                    // else {
+                    //     const groupNode = new ExprNode(ExprNodeType.GROUP);
+                    //     groupNode.children = nodeStack;
+                    //     nodeStack = [groupNode];
+                    // }
+                }
+            };
+
+            while (tokenIndex < tokens.length && !(stopToken && tokens[tokenIndex] === stopToken)) {
+                const t = tokens[tokenIndex];
+
+                if (t === '(') {
+                    const ret = parseTokens(tokens, tokenIndex + 1, ')');
+
+                    const preNode = nodeStack[nodeStack.length - 1];
+
+                    // func ()
+                    if (preNode && preNode.type === ExprNodeType.VAR) {
+                        preNode.type = ExprNodeType.FUNCTION;
+                        preNode.children = ret[0];
+                    }
+                    else {
+                        const children = ret[0];
+                        let signalOperationExpr = false;
+
+                        // 删除没必要的 brance
+                        if(children.length === 1) {
+                            const child = children[0];
+                            if (child.type !== ExprNodeType.VAR) {
+                                nodeStack.push(child);
+                                signalOperationExpr = true;
+                            }
+                        }
+
+                        if (!signalOperationExpr) {
+                            const braceNode = new ExprNode(ExprNodeType.BRACE);
+                            braceNode.children = ret[0];
+                            nodeStack.push(braceNode);
+                        }
+                    }
+
+                    tokenIndex = ret[1];
+                }
+
+                else if (isBinaryOperator(t)) {
+                    const binaryNode = new ExprNode(ExprNodeType.BINARY_OPERATOR, t);
+
+                    commitOperatorStack((topOperator) => {
+                        // 先处理优先级大的
+                        return isNodeOperatorPrior(topOperator, binaryNode);
+                    });
+
+                    operatorStack.push(binaryNode);
+                    nodeStack.push(binaryNode);
+                }
+                else if (isUnaryOperator(t)) {
+                    const unaryNode = new ExprNode(ExprNodeType.UNARY_OPERATOR, t)
+                    operatorStack.push(unaryNode);
+                    nodeStack.push(unaryNode);
+                }
+
+                else if (t === ',') {
+                    commitOperatorStack((topOperator) => {
+                        return !!topOperator;
+                    });
+                }
+                else {
+                    let node = null;
+
+                    const decimalNumberReg = /^[-+]?[0-9]+(\.[0-9]+)?$/;
+                    const decimalMatches = decimalNumberReg.exec(t);
+                    if (decimalMatches) {
+                        node = new ExprNode(ExprNodeType.CONST, parseInt(t));
+                    }
+                    else {
+                        const hexNumberReg = /^0([xX])[0-9a-fA-F]+$/;
+                        const hexMatches = hexNumberReg.exec(t);
+                        if (hexMatches) {
+                            node = new ExprNode(ExprNodeType.CONST, parseInt(t, 16));
+                        }
+                        else {
+                            const stringReg = /^['"](\w+)['"]$/;
+                            const stringMatches = stringReg.exec(t);
+                            if (stringMatches) {
+                                node = new ExprNode(ExprNodeType.CONST, stringMatches[1]);
+                            }
+                            else {
+                                node = new ExprNode(ExprNodeType.VAR, t);
+                            }
+                        }
+                    }
+
+                    if (!node) {
+                        console.error("nil node");
+                    }
+
+
+                    const preNode = nodeStack[nodeStack.length - 1];
+                    if (preNode && preNode.type === ExprNodeType.BRACE) {
+                        nodeStack.pop();
+                        node.decorator = preNode;
+                    }
+
+                    nodeStack.push(node);
+                }
+
+                tokenIndex++;
+            }
+
+            commitOperatorStack((topOperator) => {
+                return !!topOperator;
+            }, true);
+
+            return [nodeStack, tokenIndex];
+        };
+
+        const ret = parseTokens(tokens, 0, null);
+        const rootNode = ret[0];
+        return rootNode;
+    };
+}
+
 const ASTNodeType = {
     DO: 'do',
     WHILE: 'while',
@@ -203,6 +450,7 @@ class ASTNodeParser {
 
         this._parseLabel(rootNode);
         this._linkLabel(rootNode);
+        this._parseCondition(rootNode);
 
         return rootNode;
     }
@@ -398,30 +646,10 @@ class ASTNodeParser {
             ASTNodeType.SWITCH,
         ];
 
-        // const parseExpr = (text, index) => {
-        //
-        // };
-        //
-        // const parseBrace = (text, index) => {
-        //
-        // };
-        //
-        // const parseUnary = (text, index) => {
-        //
-        // };
-        //
-        // const parseBinary = (text, index) => {
-        //
-        // };
-
-
-
-
-
-
         this._visitNode(rootNode, (node) => {
             if (conditionNodeTypes.indexOf(node.type) !== -1) {
-                node.parsedCondition = parse(node.condition, 0);
+                const parser = new ExprNodeParser();
+                node.parsedCondition = parser.parse(node.condition);
                 return true;
             }
             return false;
@@ -435,225 +663,5 @@ function process(content) {
     rootNode.print();
 }
 
-const ExprNodeType = {
-    VAR: 'var',
-    CONST: 'const',
-    BINARY_OPERATOR: 'binary_operator',
-    UNARY_OPERATOR: 'unary_operator',
-    FUNCTION: 'function',
-    BRACE_L: '(',
-    BRACE_R: ')',
-    COMMA: ',',
-    GROUP: 'group'
-};
 
-class ExprNode {
-    constructor (type, val = null) {
-        this.type = type;
-        this.val = val;
-        this.children = [];
-    }
-}
-
-const parse = (condition) => {
-    const binaryOperators = [ '+', '-', '>', '<', '>=', '<=', '==', '!=','*', '/', '%', '<<', '>>', '&&', '||', '&', '|', '^'];
-    const unaryOperators = ['!', '~']; // ignore ++ --
-    const operatorsPriority = {
-        "(": 0,
-        '++': 1,
-        '--': 1,
-        '!': 1,
-        '~': 1,
-        '*': 2,
-        '/': 2,
-        '%': 2,
-        '+': 3,
-        '-': 3,
-        '<<': 4,
-        '>>': 4,
-        '>': 5,
-        '<': 5,
-        '>=': 5,
-        '<=': 5,
-        '==': 6,
-        '!=': 6,
-        '^': 7,
-        '&': 8,
-        '|': 9,
-        '&&': 10,
-        '||': 11,
-        ',': 100,
-    };
-
-    const splitReg = () => {
-        const operators = ['\\(', '\\)', '\\{', '\\}', '\\+', '\\+\\+', '\\-', '\\-\\-', '\\*', '/', '%', '=', '==', '!=', '>', '>=', '<', '<=', '\\+=', '\\-=', '\\*=', '/=', '%=', '<<=', '>>=', '&=', '^=', '\\|=', '\\!', '~', '\\^', '&', '&&', '\\|', '\\|\\|', '>>', '<<', '\\?', '\\:\\:', '\\:', '\\,', ';'];
-
-        operators.sort((a, b) => {
-            return a.length === b.length ? 0 : ((a.length > b.length) ? -1 : 1);
-        });
-
-        let regStr = operators.map((op => {
-            return `(${op})`;
-        })).join("|");
-
-        return new RegExp(`\\s|${regStr}`, 'g');
-    };
-    const regex = splitReg();
-
-    const tokens = condition.split(regex).filter(c => c && c.length);
-
-    const isBinaryOperator = (token) => {
-        return binaryOperators.indexOf(token) !== -1;
-    };
-    const isUnaryOperator = (token) => {
-        return unaryOperators.indexOf(token) !== -1;
-    };
-    const isOperator = (token) => {
-        return isBinaryOperator(token) || isUnaryOperator(token) || token === ',' || token === '('  || token === ')';
-    };
-
-    const isNodeOperatorPrior = (nodeA, nodeB) => {
-        return operatorsPriority[nodeA.val] <= operatorsPriority[nodeB.val];
-    };
-
-    const parseTokens = (tokens) => {
-        const operatorStack = [];
-        const nodeStack = [];
-
-        const commitOperatorStack = (until) => {
-            while (operatorStack.length) {
-                const topOperator = operatorStack[operatorStack.length - 1];
-                if (until(topOperator)) {
-                    operatorStack.length -= 1;
-
-                    if (isBinaryOperator(topOperator)) {
-                        topOperator.children = nodeStack.splice(nodeStack.length - 2, 2);
-                        nodeStack.push(topOperator);
-                    }
-                    else if (isUnaryOperator(topOperator)) {
-                        topOperator.children = nodeStack.splice(nodeStack.length - 1, 1);
-                        nodeStack.push(topOperator)
-                    }
-                    else {
-                        // skip
-                    }
-                }
-                else {
-                    break;
-                }
-            }
-        };
-
-        let index = 0;
-        while (index < tokens.length) {
-            const t = tokens[index];
-
-            if (isBinaryOperator(t)) {
-                const binaryNode = new ExprNode(ExprNodeType.BINARY_OPERATOR, t);
-
-                commitOperatorStack((topOperator) => {
-                    return isNodeOperatorPrior(topOperator, binaryNode);
-                });
-
-                operatorStack.push(binaryNode);
-            }
-            else if (isUnaryOperator(t)) {
-                operatorStack.push(new ExprNode(ExprNodeType.UNARY_OPERATOR, t));
-            }
-            else if (t === ExprNodeType.BRACE_L) {
-
-            }
-            else if (t === ExprNodeType.BRACE_R) {
-                const children = [];
-                commitOperatorStack((topOperator) => {
-                    if (topOperator.type === ExprNodeType.COMMA) {
-                        children.unshift(nodeStack.pop());
-                    }
-                    else if (topOperator.type === ExprNodeType.BRACE_L) {
-                        children.unshift(nodeStack.pop());
-
-                        const functionNode = nodeStack[nodeStack.length - 1];
-                        if (functionNode && functionNode.type === ExprNodeType.FUNCTION) {
-                            functionNode.children = children;
-                        }
-                        else {
-                            // 避免只有一个 child 的 group node
-                            if (children.length === 1) {
-                                nodeStack.push(children[0]);
-                            }
-                            else {
-                                const groupNode = new ExprNode(ExprNodeType.GROUP);
-                                groupNode.children = children;
-                                nodeStack.push(groupNode);
-                            }
-                        }
-                    }
-                    else {
-
-                    }
-
-                    return topOperator.type !== ExprNodeType.BRACE_L;
-                });
-            }
-            else if (t === ExprNodeType.COMMA) {
-                operatorStack.push(new ExprNode(ExprNodeType.COMMA));
-            }
-            else {
-                let node = null;
-
-                const decimalNumberReg = /^[-+]?[0-9]+(\.[0-9]+)?$/;
-                const decimalMatches = decimalNumberReg.exec(t);
-                if (decimalMatches) {
-                    node = new ExprNode(ExprNodeType.CONST, parseInt(t));
-                }
-                else {
-                    const hexNumberReg = /^0([xX])[0-9a-fA-F]+$/;
-                    const hexMatches = hexNumberReg.exec(t);
-                    if (hexMatches) {
-                        node = new ExprNode(ExprNodeType.CONST, parseInt(t, 16));
-                    }
-                    else {
-                        const stringReg = /^['"](\w+)['"]$/;
-                        const stringMatches = stringReg.exec(t);
-                        if (stringMatches) {
-                            node = new ExprNode(ExprNodeType.CONST, stringMatches[1]);
-                        }
-                        else {
-                            node = new ExprNode(ExprNodeType.VAR, t);
-                        }
-                    }
-                }
-
-                if (!node) {
-                    console.error("nil node");
-                }
-
-                const nextToken = tokens[index + 1];
-                if (nextToken === ExprNodeType.BRACE_L) {
-                    node.type = ExprNodeType.FUNCTION;
-                }
-
-                nodeStack.push(node);
-            }
-
-            index++
-        }
-
-        commitOperatorStack((topOperator) => {
-            return !!topOperator;
-        })
-
-        return nodeStack[0];
-    };
-
-    console.log(tokens);
-
-    const rootNode = parseTokens(tokens);
-    console.log(rootNode);
-};
-
-parse(' SHIDWORD(main_controlflow) > (signed int) 0xBA54DE18 ');
-// parse(' v15 ^ v16 ');
-// parse('  (dword_108782370 - 1) * dword_108782370 & 1 ');
-// parse('a * INT(b + c, d) - e')
-// parse('a * ~INT(~(b + c), d) - e')
+process(content);
