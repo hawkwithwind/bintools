@@ -57,6 +57,9 @@ const {isType, addType} = (() => {
         '__int64',
         'signed __int64',
         'unsigned __int64',
+        '__int128',
+        'signed __int128',
+        'unsigned __int128',
 
         'uint',
         'uchar',
@@ -101,12 +104,13 @@ const {isType, addType} = (() => {
 })();
 
 const ExpressionNodeType = {
+    TYPE: 'type',
     VAR: 'var',
     NUMBER: 'number',
     STRING: 'string',
     BINARY_OPERATOR: 'binary_operator',
     UNARY_OPERATOR: 'unary_operator',
-    FUNCTION: 'function',
+    FUNCTION_CALL: 'function_call',
     BRACE: '()',
     DECLARE_VAR: "declare_var"
 };
@@ -115,25 +119,96 @@ class ExpressionNode {
     constructor (type, val = null) {
         this.type = type;
         this.val = val;
-        this.children = null;
+        this.children = [];
         this.castType = null;   // 转换类型
         this._committed = false;  // node 一旦 commit 了，就不能在进行符号计算了，比如 "a, &b" 不能是 "a & b"
     }
 
-    toString() {
-        let ret = null;
+    isVarOrConstantNode () {
+        return this.type === ExpressionNodeType.STRING || this.type === ExpressionNodeType.NUMBER;
+    }
+
+    isBinaryOperatorNode() {
+        return this.type === ExpressionNodeType.BINARY_OPERATOR;
+    }
+
+    isUnaryOperatorNode() {
+        return this.type === ExpressionNodeType.UNARY_OPERATOR;
+    }
+
+    isOperatorNode() {
+        return this.isBinaryOperatorNode() || this.isUnaryOperatorNode();
+    };
+
+    isTypeBraceNode() {
+        if (this.type !== ExpressionNodeType.BRACE) {
+            return false;
+        }
+
+        const typeNode = this.children && this.children[0];
+        return typeNode && typeNode.type === ExpressionNodeType.TYPE;
+    }
+
+    // 这个 node 是否是已经完整的 node。比如加法，如果已经有两个 child 了，那个这个表达式已经完整。
+    isCompleted() {
+        let ret = false;
 
         switch (this.type) {
             case ExpressionNodeType.VAR:
             case ExpressionNodeType.NUMBER:
             case ExpressionNodeType.STRING:
-                const valStr = this.type === ExpressionNodeType.NUMBER ? `0x${this.val.toString(16)}` : this.val;
-                if (this.castType) {
-                    ret = `(${this.castType.toString()}) ${valStr}`;
+                ret = true;
+                break;
+
+            case ExpressionNodeType.BINARY_OPERATOR:
+                ret = this.children && this.children.length === 2;
+                break;
+
+            case ExpressionNodeType.UNARY_OPERATOR:
+                ret = this.children && this.children.length === 2;
+                break;
+
+            case ExpressionNodeType.FUNCTION_CALL:
+            case ExpressionNodeType.BRACE:
+                ret = true;
+                break;
+        }
+
+        return ret;
+    }
+
+    toString() {
+        let ret = null;
+
+        let castStr = "";
+
+        if (this.castType) {
+            castStr = this.castType.toString();
+        }
+
+        switch (this.type) {
+            case ExpressionNodeType.TYPE:
+                const printPointer = (node) => {
+                    if (!node.children || !node.children.length) {
+                        return ""
+                    }
+
+                    const pointerNode = node.children[0];
+                    return pointerNode.val + printPointer(pointerNode);
+                };
+
+                let pointerStr = printPointer(this);
+                if (pointerStr.length) {
+                    pointerStr = " " + pointerStr;
                 }
-                else {
-                    ret = valStr;
-                }
+
+                ret = this.val + pointerStr;
+
+                break;
+            case ExpressionNodeType.VAR:
+            case ExpressionNodeType.NUMBER:
+            case ExpressionNodeType.STRING:
+                ret = this.type === ExpressionNodeType.NUMBER ? `0x${this.val.toString(16)}` : this.val;
                 break;
 
             case ExpressionNodeType.BINARY_OPERATOR:
@@ -141,16 +216,16 @@ class ExpressionNode {
                 break;
 
             case ExpressionNodeType.UNARY_OPERATOR:
-                try {
-                    ret = `${this.val}${this.children[0].toString()}`;
+                if (this.val === 'cast') {
+                    ret = `(${this.children[0].toString()})`;
                 }
-                catch (e) {
-                    console.log(e);
+                else {
+                    ret = `${this.val}${this.children[0].toString()}`;
                 }
 
                 break;
 
-            case ExpressionNodeType.FUNCTION:
+            case ExpressionNodeType.FUNCTION_CALL:
                 ret = `${this.val}(${this.children.map(n => n.toString()).join(", ")})`;
                 break;
 
@@ -162,20 +237,23 @@ class ExpressionNode {
                 console.error(`Unkown node type:${this.type}`);
         }
 
-        return ret;
+        return castStr + ret;
     }
 }
 
 class ExpressionNodeParser {
     parse (expression) {
-        const binaryOperators = [ '+', '-', '>', '<', '>=', '<=', '==', '!=','*', '/', '%', '<<', '>>', '&&', '||', '&', '|', '^', '='];
+        const binaryOperators = [ '+', '-', '>', '<', '>=', '<=', '==', '!=','*', '/', '%', '<<', '>>', '&&', '||', '&', '|', '^', '=', '.', '->'];
         const unaryOperators = ['!', '~', '++', '--']; // ++ -- 只支持前缀模式
         const operatorsPriority = {
+            '.': -1,
+            '->': -1,
             "(": 0,
             '++': 1,
             '--': 1,
             '!': 1,
             '~': 1,
+            'cast': 1,
             '*': 2,
             '/': 2,
             '%': 2,
@@ -235,7 +313,10 @@ class ExpressionNodeParser {
             '>>',
             '<<',
             '\\,',
-            ';'];
+            ';',
+            '\\->',
+            '\\.'
+        ];
 
         const splitReg = () => {
 
@@ -260,96 +341,38 @@ class ExpressionNodeParser {
             return unaryOperators.indexOf(token) !== -1;
         };
 
-        const isNodeVarOrConstant = (node) => {
-            return node.type === ExpressionNodeType.VAR || node.type === ExpressionNodeType.STRING || node.type === ExpressionNodeType.NUMBER;
-        };
-
-        const isNodeBinaryOperator = (node) => {
-            return node.type === ExpressionNodeType.BINARY_OPERATOR;
-        };
-
-        const isNodeUnaryOperator = (node) => {
-            return node.type === ExpressionNodeType.UNARY_OPERATOR;
-        };
-
-        const isNodeOperator = (node) => {
-            return isNodeBinaryOperator(node) || isNodeUnaryOperator(node);
-        };
-
-        const isNodeOperatorPrior = (nodeA, nodeB) => {
-            return operatorsPriority[nodeA.val] <= operatorsPriority[nodeB.val];
-        };
-
         const parseTokens = (tokens, tokenIndex, stopToken) => {
             const operatorStack = [];
             let nodeStack = [];
 
-            const commitOperatorStack = (until, finalRound = false) => {
+            const commitOperatorStack = (until) => {
                 while (operatorStack.length) {
                     const topOperator = operatorStack[operatorStack.length - 1];
                     if (until(topOperator)) {
                         operatorStack.pop();
 
-                        if (isNodeBinaryOperator(topOperator)) {
-                            // 需要区分指针"(char *)" 和乘法符号
-                            if (topOperator.val === "*") {
-                                let isMultiply = false;
+                        if (topOperator.isBinaryOperatorNode()) {
+                            const tmp = nodeStack.splice(nodeStack.length - 3, 3);
+                            topOperator.children = [tmp[0], tmp[2]];
+                            nodeStack.push(topOperator);
+                        }
+                        else if (topOperator.isUnaryOperatorNode()) {
+                            if (topOperator.val === 'cast') {
+                                const tmp = nodeStack.splice(nodeStack.length - 2, 2);
+                                const node = tmp[1];
+                                node.castType = tmp[0];
 
-                                const middleNode = nodeStack[nodeStack.length - 2];
-                                if (middleNode.type === ExpressionNodeType.BINARY_OPERATOR && middleNode.val === "*") {
-                                    const firstNode = nodeStack[nodeStack.length - 3];
-                                    const secondNode = nodeStack[nodeStack.length - 1];
-
-                                    isMultiply = isNodeVarOrConstant(firstNode) && isNodeVarOrConstant(secondNode);
-                                }
-                                
-                                if (isMultiply) {
-                                    // 乘法
-                                    const tmp = nodeStack.splice(nodeStack.length - 3, 3);
-                                    topOperator.children = [tmp[0], tmp[2]];
-                                    nodeStack.push(topOperator);
-                                }
-                                else {
-                                    // 指针
-                                    const opNode = nodeStack.pop();
-                                    const lastNode = nodeStack[nodeStack.length - 1];
-                                    lastNode.children = [opNode];
-                                }
+                                nodeStack.push(node);
                             }
                             else {
-                                const tmp = nodeStack.splice(nodeStack.length - 3, 3);
-                                topOperator.children = [tmp[0], tmp[2]];
-                                nodeStack.push(topOperator);
+                                const tmp = nodeStack.splice(nodeStack.length - 2, 2);
+                                topOperator.children = [tmp[1]];
+                                nodeStack.push(topOperator)
                             }
-                        }
-                        else if (isNodeUnaryOperator(topOperator)) {
-                            const tmp = nodeStack.splice(nodeStack.length - 2, 2);
-                            topOperator.children = [tmp[1]];
-                            nodeStack.push(topOperator)
-                        }
-                        else {
-                            break;
-                            // skip
                         }
                     }
                     else {
                         break;
-                    }
-                }
-
-                // 已经没有没有 operator，但是 node 中仍然有多个，那么将这些 node 合并起来。比如 (unsigned int)
-                if (finalRound && !operatorStack.length && nodeStack.length > 1) {
-                    let allVar = true;
-                    nodeStack.forEach(node => {
-                        if (node.type !== ExpressionNodeType.VAR) {
-                            allVar = false;
-                        }
-                    });
-
-                    if (allVar) {
-                        const newNode = new ExpressionNode(ExpressionNodeType.VAR);
-                        newNode.val = nodeStack.map((node) => node.val).join(" ");
-                        nodeStack = [newNode];
                     }
                 }
             };
@@ -363,24 +386,31 @@ class ExpressionNodeParser {
                     const preNode = nodeStack[nodeStack.length - 1];
 
                     // func ()
-                    if (preNode && preNode.type === ExpressionNodeType.VAR) {
-                        preNode.type = ExpressionNodeType.FUNCTION;
+                    if (preNode && !preNode._committed && preNode.type === ExpressionNodeType.VAR) {
+                        preNode.type = ExpressionNodeType.FUNCTION_CALL;
                         preNode.children = ret[0];
                     }
                     else {
                         const children = ret[0];
-                        let signalOperationExpr = false;
 
-                        // 删除没必要的 brance
+                        // 删除没必要的 brace,
                         if(children.length === 1) {
-                            const child = children[0];
-                            if (child.type !== ExpressionNodeType.VAR) {
-                                nodeStack.push(child);
-                                signalOperationExpr = true;
+                            const node = children[0];
+                            // 如果是 (xxxx) 返回 brace 类型 node
+                            if (node.type !== ExpressionNodeType.TYPE) {
+                                nodeStack.push(node);
+                            }
+                            else {
+                                // 将类型转换当作一种 unary 操作符
+                                const unaryNode = new ExpressionNode(ExpressionNodeType.UNARY_OPERATOR);
+                                unaryNode.val = 'cast';
+                                unaryNode.children = [node];
+
+                                operatorStack.push(unaryNode);
+                                nodeStack.push(unaryNode);
                             }
                         }
-
-                        if (!signalOperationExpr) {
+                        else {
                             const braceNode = new ExpressionNode(ExpressionNodeType.BRACE);
                             braceNode.children = ret[0];
                             nodeStack.push(braceNode);
@@ -390,25 +420,52 @@ class ExpressionNodeParser {
                     tokenIndex = ret[1];
                 }
                 else if (isBinaryOperator(t)) {
-                    let unaryOp = false;
-
                     const preNode = nodeStack[nodeStack.length - 1];
-                    if (t === '*' || t === "&") {
-                        // 如果没有node或者之前是操作符号，那么 * & 认为是地址操作符
-                        if (!preNode || preNode._committed || isNodeOperator(preNode)) {
+                    let isNormalBinaryOperator = true;
+
+                    // * 有三种意思：乘法、指针类型、计算目标地址
+                    if (t === "*") {
+                        // 指针类型
+                        if (preNode && (preNode.type === ExpressionNodeType.TYPE)){
+                            preNode.children.push(new ExpressionNode(ExpressionNodeType.UNARY_OPERATOR, t));
+                            isNormalBinaryOperator = false;
+                        }
+                        // 计算目标地址
+                        else if (!preNode ||
+                            preNode._committed ||
+                            preNode.isTypeBraceNode()||
+                            (preNode.isOperatorNode() && !preNode.isCompleted())) {
                             operatorStack.push(new ExpressionNode(ExpressionNodeType.UNARY_OPERATOR, t));
                             nodeStack.push(new ExpressionNode(ExpressionNodeType.UNARY_OPERATOR, t));
-
-                            unaryOp = true;
+                            isNormalBinaryOperator = false;
+                        }
+                        // 乘法
+                        else {
                         }
                     }
 
-                    if (!unaryOp) {
+                    // & 有两种意思：与操作符，取地址
+                    else if (t === '&') {
+                        // 取地址
+                        if (!preNode ||
+                            preNode._committed ||
+                            preNode.isTypeBraceNode() ||
+                            (preNode.isOperatorNode() && !preNode.isCompleted())) {
+                            operatorStack.push(new ExpressionNode(ExpressionNodeType.UNARY_OPERATOR, t));
+                            nodeStack.push(new ExpressionNode(ExpressionNodeType.UNARY_OPERATOR, t));
+                            isNormalBinaryOperator = false;
+                        }
+                        // 与操作符
+                        else {
+                        }
+                    }
+
+                    if (isNormalBinaryOperator) {
                         const binaryNode = new ExpressionNode(ExpressionNodeType.BINARY_OPERATOR, t);
 
                         commitOperatorStack((topOperator) => {
                             // 先处理优先级大的
-                            return isNodeOperatorPrior(topOperator, binaryNode);
+                            return operatorsPriority[topOperator.val] <= operatorsPriority[binaryNode.val];
                         });
 
                         operatorStack.push(binaryNode);
@@ -433,16 +490,26 @@ class ExpressionNodeParser {
                 else if (t === ';') {
                     commitOperatorStack((topOperator) => {
                         return !!topOperator;
-                    }, true);
+                    });
 
                     const topNode = nodeStack[nodeStack.length - 1];
                     topNode._committed = true;
                 }
 
+                else if (isType(t)) {
+                    const preNode = nodeStack[nodeStack.length - 1];
+                    if (preNode && preNode.type === ExpressionNodeType.TYPE) {
+                        preNode.val += ` ${t}`;
+                    }
+                    else {
+                        nodeStack.push(new ExpressionNode(ExpressionNodeType.TYPE, t));
+                    }
+                }
+
                 else {
                     let node = null;
 
-                    const decimalNumberReg = /^[-+]?[0-9]+(\.[0-9]+)?$/;
+                    const decimalNumberReg = /^[-+]?[0-9]+(\.[0-9]+)?L*$/;
                     const decimalMatches = decimalNumberReg.exec(t);
                     if (decimalMatches) {
                         node = new ExpressionNode(ExpressionNodeType.NUMBER, parseInt(t));
@@ -469,18 +536,6 @@ class ExpressionNodeParser {
                         console.error("nil node");
                     }
 
-
-                    const preNode = nodeStack[nodeStack.length - 1];
-                    if (preNode && preNode.type === ExpressionNodeType.BRACE) {
-                        nodeStack.pop();
-
-                        if (preNode.children.length > 1) {
-                            console.error('cast can not have multiple children');
-                        }
-
-                        node.castType = preNode.children[0];
-                    }
-
                     nodeStack.push(node);
                 }
 
@@ -489,7 +544,7 @@ class ExpressionNodeParser {
 
             commitOperatorStack((topOperator) => {
                 return !!topOperator;
-            }, true);
+            });
 
             return [nodeStack, tokenIndex];
         };
@@ -980,27 +1035,41 @@ class BranchNodeParser {
     }
 }
 
+function testExpressionParser() {
+    const test = (expresion) => {
+        const parser = new ExpressionNodeParser();
+        const ret = parser.parse(expresion);
+        console.log(ret.toString());
+    };
+
+    test('(void *)(a + b)');
+    test('sub_10100F444(v27, (__int64)&v19, (__int128 *)&v19);');
+    test('(unsigned int*)a');
+    test('*((_BYTE *)v14 + v30) = 0;')
+}
+
 function process(content) {
     const parser = new BranchNodeParser();
     const rootNode = parser.parse(content);
-
-    const collectParsedConditions = (rootNode) => {
-        const result = [];
-
-        rootNode.visit((node) => {
-            if (node.parsedCondition) {
-                result.push(node.parsedCondition.toString());
-            }
-
-            return true;
-        });
-
-        return result;
-    };
 
     const parsedConditions = collectParsedConditions(rootNode);
     console.log(parsedConditions);
 }
 
+function collectParsedConditions(rootNode) {
+    const result = [];
 
-process(content);
+    rootNode.visit((node) => {
+        if (node.parsedCondition) {
+            result.push(node.parsedCondition.toString());
+        }
+
+        return true;
+    });
+
+    return result;
+}
+
+// process(content);
+
+testExpressionParser();
