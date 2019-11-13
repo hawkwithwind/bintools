@@ -2,29 +2,174 @@ const fs = require('fs');
 
 const content = fs.readFileSync("./didAddDyldImage_104B8768C.cpp", {encoding: 'utf8'});
 
-const ExprNodeType = {
+const {isType, addType} = (() => {
+    const baseTypeList = [
+        'void',
+
+        'bool',
+
+        'char',
+        'signed char',
+        'unsigned char',
+
+        'wchar_t',
+
+        'short',
+        'signed short',
+        'unsigned short',
+        'signed short int',
+        'unsigned short int',
+
+        'unsigned',
+        'signed',
+        'int',
+        'signed int',
+        'unsigned int',
+        'long int',
+        'signed long int',
+        'unsigned long int',
+
+        'long',
+        'signed long',
+        'unsigned long',
+        'long long',
+        'signed long long',
+        'unsigned long long',
+        'signed long long int',
+        'long long int',
+        'unsigned long long int',
+
+        'float',
+        'double',
+        'long double',
+
+        // ida
+
+        '__int8',
+        'signed __int8',
+        'unsigned __int8',
+        '__int16',
+        'signed __int16',
+        'unsigned __int16',
+        '__int32',
+        'signed __int32',
+        'unsigned __int32',
+        '__int64',
+        'signed __int64',
+        'unsigned __int64',
+
+        'uint',
+        'uchar',
+        'ushort',
+        'ulong',
+        'int8',
+        'sint8',
+        'uint8',
+        'int16',
+        'sint16',
+        'uint16',
+        'int32',
+        'sint32',
+        'uint32',
+        'int64',
+        'sint64',
+        'uint64',
+
+        '_BYTE',
+        '_WORD',
+        '_DWORD',
+        '_QWORD',
+        '_LONGLONG'
+
+    ];
+    const typeDict = {};
+    baseTypeList.forEach(type => {
+        typeDict[type] = true;
+    });
+
+    return {
+        isType: (type) => {
+            type = type.split('*')[0];
+            return typeDict[type];
+        },
+
+        addType: (type) => {
+            type = type.split('*')[0].trim();
+            typeDict[type] = true;
+        }
+    };
+})();
+
+const ExpressionNodeType = {
     VAR: 'var',
-    CONST: 'const',
+    NUMBER: 'number',
+    STRING: 'string',
     BINARY_OPERATOR: 'binary_operator',
     UNARY_OPERATOR: 'unary_operator',
     FUNCTION: 'function',
     BRACE: '()',
-    GROUP: 'group'
+    DECLARE_VAR: "declare_var"
 };
 
-class ExprNode {
+class ExpressionNode {
     constructor (type, val = null) {
         this.type = type;
         this.val = val;
         this.children = null;
-        this.decorator = null;
+        this.castType = null;   // 转换类型
+        this._committed = false;  // node 一旦 commit 了，就不能在进行符号计算了，比如 "a, &b" 不能是 "a & b"
+    }
+
+    toString() {
+        let ret = null;
+
+        switch (this.type) {
+            case ExpressionNodeType.VAR:
+            case ExpressionNodeType.NUMBER:
+            case ExpressionNodeType.STRING:
+                const valStr = this.type === ExpressionNodeType.NUMBER ? `0x${this.val.toString(16)}` : this.val;
+                if (this.castType) {
+                    ret = `(${this.castType.toString()}) ${valStr}`;
+                }
+                else {
+                    ret = valStr;
+                }
+                break;
+
+            case ExpressionNodeType.BINARY_OPERATOR:
+                ret = `(${this.children[0].toString()} ${this.val} ${this.children[1].toString()})`;
+                break;
+
+            case ExpressionNodeType.UNARY_OPERATOR:
+                try {
+                    ret = `${this.val}${this.children[0].toString()}`;
+                }
+                catch (e) {
+                    console.log(e);
+                }
+
+                break;
+
+            case ExpressionNodeType.FUNCTION:
+                ret = `${this.val}(${this.children.map(n => n.toString()).join(", ")})`;
+                break;
+
+            case ExpressionNodeType.BRACE:
+                ret = `(${this.children.map(n => n.toString()).join(", ")})`;
+                break;
+
+            default:
+                console.error(`Unkown node type:${this.type}`);
+        }
+
+        return ret;
     }
 }
 
-class ExprNodeParser {
-    parse (condition) {
-        const binaryOperators = [ '+', '-', '>', '<', '>=', '<=', '==', '!=','*', '/', '%', '<<', '>>', '&&', '||', '&', '|', '^'];
-        const unaryOperators = ['!', '~']; // ignore ++ --
+class ExpressionNodeParser {
+    parse (expression) {
+        const binaryOperators = [ '+', '-', '>', '<', '>=', '<=', '==', '!=','*', '/', '%', '<<', '>>', '&&', '||', '&', '|', '^', '='];
+        const unaryOperators = ['!', '~', '++', '--']; // ++ -- 只支持前缀模式
         const operatorsPriority = {
             "(": 0,
             '++': 1,
@@ -49,11 +194,50 @@ class ExprNodeParser {
             '|': 9,
             '&&': 10,
             '||': 11,
-            ',': 100,
+            '=': 12
         };
+        const operators = [
+            '\\(',
+            '\\)',
+            '\\{',
+            '\\}',
+            '\\+',
+            '\\+\\+',
+            '\\-',
+            '\\-\\-',
+            '\\*',
+            '/',
+            '%',
+            '=',
+            '==',
+            '!=',
+            '>',
+            '>=',
+            '<',
+            '<=',
+            '\\+=',
+            '\\-=',
+            '\\*=',
+            '/=',
+            '%=',
+            '<<=',
+            '>>=',
+            '&=',
+            '^=',
+            '\\|=',
+            '\\!',
+            '~',
+            '\\^',
+            '&',
+            '&&',
+            '\\|',
+            '\\|\\|',
+            '>>',
+            '<<',
+            '\\,',
+            ';'];
 
         const splitReg = () => {
-            const operators = ['\\(', '\\)', '\\{', '\\}', '\\+', '\\+\\+', '\\-', '\\-\\-', '\\*', '/', '%', '=', '==', '!=', '>', '>=', '<', '<=', '\\+=', '\\-=', '\\*=', '/=', '%=', '<<=', '>>=', '&=', '^=', '\\|=', '\\!', '~', '\\^', '&', '&&', '\\|', '\\|\\|', '>>', '<<', '\\?', '\\:\\:', '\\:', '\\,', ';'];
 
             operators.sort((a, b) => {
                 return a.length === b.length ? 0 : ((a.length > b.length) ? -1 : 1);
@@ -67,7 +251,7 @@ class ExprNodeParser {
         };
         const regex = splitReg();
 
-        const tokens = condition.split(regex).filter(c => c && c.length);
+        const tokens = expression.split(regex).filter(c => c && c.length);
 
         const isBinaryOperator = (token) => {
             return binaryOperators.indexOf(token) !== -1;
@@ -75,8 +259,21 @@ class ExprNodeParser {
         const isUnaryOperator = (token) => {
             return unaryOperators.indexOf(token) !== -1;
         };
-        const isOperator = (token) => {
-            return isBinaryOperator(token) || isUnaryOperator(token) || token === ',' || token === '('  || token === ')';
+
+        const isNodeVarOrConstant = (node) => {
+            return node.type === ExpressionNodeType.VAR || node.type === ExpressionNodeType.STRING || node.type === ExpressionNodeType.NUMBER;
+        };
+
+        const isNodeBinaryOperator = (node) => {
+            return node.type === ExpressionNodeType.BINARY_OPERATOR;
+        };
+
+        const isNodeUnaryOperator = (node) => {
+            return node.type === ExpressionNodeType.UNARY_OPERATOR;
+        };
+
+        const isNodeOperator = (node) => {
+            return isNodeBinaryOperator(node) || isNodeUnaryOperator(node);
         };
 
         const isNodeOperatorPrior = (nodeA, nodeB) => {
@@ -93,14 +290,41 @@ class ExprNodeParser {
                     if (until(topOperator)) {
                         operatorStack.pop();
 
-                        if (isBinaryOperator(topOperator.val)) {
-                            const tmp = nodeStack.splice(nodeStack.length - 3, 3);
-                            topOperator.children = [tmp[0], tmp[2]];
-                            nodeStack.push(topOperator);
+                        if (isNodeBinaryOperator(topOperator)) {
+                            // 需要区分指针"(char *)" 和乘法符号
+                            if (topOperator.val === "*") {
+                                let isMultiply = false;
+
+                                const middleNode = nodeStack[nodeStack.length - 2];
+                                if (middleNode.type === ExpressionNodeType.BINARY_OPERATOR && middleNode.val === "*") {
+                                    const firstNode = nodeStack[nodeStack.length - 3];
+                                    const secondNode = nodeStack[nodeStack.length - 1];
+
+                                    isMultiply = isNodeVarOrConstant(firstNode) && isNodeVarOrConstant(secondNode);
+                                }
+                                
+                                if (isMultiply) {
+                                    // 乘法
+                                    const tmp = nodeStack.splice(nodeStack.length - 3, 3);
+                                    topOperator.children = [tmp[0], tmp[2]];
+                                    nodeStack.push(topOperator);
+                                }
+                                else {
+                                    // 指针
+                                    const opNode = nodeStack.pop();
+                                    const lastNode = nodeStack[nodeStack.length - 1];
+                                    lastNode.children = [opNode];
+                                }
+                            }
+                            else {
+                                const tmp = nodeStack.splice(nodeStack.length - 3, 3);
+                                topOperator.children = [tmp[0], tmp[2]];
+                                nodeStack.push(topOperator);
+                            }
                         }
-                        else if (isUnaryOperator(topOperator.val)) {
+                        else if (isNodeUnaryOperator(topOperator)) {
                             const tmp = nodeStack.splice(nodeStack.length - 2, 2);
-                            topOperator.children = tmp[1];
+                            topOperator.children = [tmp[1]];
                             nodeStack.push(topOperator)
                         }
                         else {
@@ -117,21 +341,16 @@ class ExprNodeParser {
                 if (finalRound && !operatorStack.length && nodeStack.length > 1) {
                     let allVar = true;
                     nodeStack.forEach(node => {
-                        if (node.type !== ExprNodeType.VAR) {
+                        if (node.type !== ExpressionNodeType.VAR) {
                             allVar = false;
                         }
                     });
 
                     if (allVar) {
-                        const newNode = new ExprNode(ExprNodeType.VAR);
+                        const newNode = new ExpressionNode(ExpressionNodeType.VAR);
                         newNode.val = nodeStack.map((node) => node.val).join(" ");
                         nodeStack = [newNode];
                     }
-                    // else {
-                    //     const groupNode = new ExprNode(ExprNodeType.GROUP);
-                    //     groupNode.children = nodeStack;
-                    //     nodeStack = [groupNode];
-                    // }
                 }
             };
 
@@ -144,8 +363,8 @@ class ExprNodeParser {
                     const preNode = nodeStack[nodeStack.length - 1];
 
                     // func ()
-                    if (preNode && preNode.type === ExprNodeType.VAR) {
-                        preNode.type = ExprNodeType.FUNCTION;
+                    if (preNode && preNode.type === ExpressionNodeType.VAR) {
+                        preNode.type = ExpressionNodeType.FUNCTION;
                         preNode.children = ret[0];
                     }
                     else {
@@ -155,14 +374,14 @@ class ExprNodeParser {
                         // 删除没必要的 brance
                         if(children.length === 1) {
                             const child = children[0];
-                            if (child.type !== ExprNodeType.VAR) {
+                            if (child.type !== ExpressionNodeType.VAR) {
                                 nodeStack.push(child);
                                 signalOperationExpr = true;
                             }
                         }
 
                         if (!signalOperationExpr) {
-                            const braceNode = new ExprNode(ExprNodeType.BRACE);
+                            const braceNode = new ExpressionNode(ExpressionNodeType.BRACE);
                             braceNode.children = ret[0];
                             nodeStack.push(braceNode);
                         }
@@ -170,51 +389,78 @@ class ExprNodeParser {
 
                     tokenIndex = ret[1];
                 }
-
                 else if (isBinaryOperator(t)) {
-                    const binaryNode = new ExprNode(ExprNodeType.BINARY_OPERATOR, t);
+                    let unaryOp = false;
 
-                    commitOperatorStack((topOperator) => {
-                        // 先处理优先级大的
-                        return isNodeOperatorPrior(topOperator, binaryNode);
-                    });
+                    const preNode = nodeStack[nodeStack.length - 1];
+                    if (t === '*' || t === "&") {
+                        // 如果没有node或者之前是操作符号，那么 * & 认为是地址操作符
+                        if (!preNode || preNode._committed || isNodeOperator(preNode)) {
+                            operatorStack.push(new ExpressionNode(ExpressionNodeType.UNARY_OPERATOR, t));
+                            nodeStack.push(new ExpressionNode(ExpressionNodeType.UNARY_OPERATOR, t));
 
-                    operatorStack.push(binaryNode);
-                    nodeStack.push(binaryNode);
+                            unaryOp = true;
+                        }
+                    }
+
+                    if (!unaryOp) {
+                        const binaryNode = new ExpressionNode(ExpressionNodeType.BINARY_OPERATOR, t);
+
+                        commitOperatorStack((topOperator) => {
+                            // 先处理优先级大的
+                            return isNodeOperatorPrior(topOperator, binaryNode);
+                        });
+
+                        operatorStack.push(binaryNode);
+                        nodeStack.push(new ExpressionNode(ExpressionNodeType.BINARY_OPERATOR, t));
+                    }
                 }
                 else if (isUnaryOperator(t)) {
-                    const unaryNode = new ExprNode(ExprNodeType.UNARY_OPERATOR, t)
-                    operatorStack.push(unaryNode);
-                    nodeStack.push(unaryNode);
+                    operatorStack.push(new ExpressionNode(ExpressionNodeType.UNARY_OPERATOR, t));
+                    nodeStack.push(new ExpressionNode(ExpressionNodeType.UNARY_OPERATOR, t));
                 }
 
+                // 需要区分："a & b" 和 "a, &b"
                 else if (t === ',') {
                     commitOperatorStack((topOperator) => {
                         return !!topOperator;
                     });
+
+                    const topNode = nodeStack[nodeStack.length - 1];
+                    topNode._committed = true;
                 }
+
+                else if (t === ';') {
+                    commitOperatorStack((topOperator) => {
+                        return !!topOperator;
+                    }, true);
+
+                    const topNode = nodeStack[nodeStack.length - 1];
+                    topNode._committed = true;
+                }
+
                 else {
                     let node = null;
 
                     const decimalNumberReg = /^[-+]?[0-9]+(\.[0-9]+)?$/;
                     const decimalMatches = decimalNumberReg.exec(t);
                     if (decimalMatches) {
-                        node = new ExprNode(ExprNodeType.CONST, parseInt(t));
+                        node = new ExpressionNode(ExpressionNodeType.NUMBER, parseInt(t));
                     }
                     else {
-                        const hexNumberReg = /^0([xX])[0-9a-fA-F]+$/;
+                        const hexNumberReg = /^0([xX])[0-9a-fA-F]+L*$/;
                         const hexMatches = hexNumberReg.exec(t);
                         if (hexMatches) {
-                            node = new ExprNode(ExprNodeType.CONST, parseInt(t, 16));
+                            node = new ExpressionNode(ExpressionNodeType.NUMBER, parseInt(t, 16));
                         }
                         else {
                             const stringReg = /^['"](\w+)['"]$/;
                             const stringMatches = stringReg.exec(t);
                             if (stringMatches) {
-                                node = new ExprNode(ExprNodeType.CONST, stringMatches[1]);
+                                node = new ExpressionNode(ExpressionNodeType.STRING, stringMatches[1]);
                             }
                             else {
-                                node = new ExprNode(ExprNodeType.VAR, t);
+                                node = new ExpressionNode(ExpressionNodeType.VAR, t);
                             }
                         }
                     }
@@ -225,9 +471,14 @@ class ExprNodeParser {
 
 
                     const preNode = nodeStack[nodeStack.length - 1];
-                    if (preNode && preNode.type === ExprNodeType.BRACE) {
+                    if (preNode && preNode.type === ExpressionNodeType.BRACE) {
                         nodeStack.pop();
-                        node.decorator = preNode;
+
+                        if (preNode.children.length > 1) {
+                            console.error('cast can not have multiple children');
+                        }
+
+                        node.castType = preNode.children[0];
                     }
 
                     nodeStack.push(node);
@@ -247,9 +498,47 @@ class ExprNodeParser {
         const rootNode = ret[0];
         return rootNode;
     };
+
+    // 对于函数定义单独parse
+    parseDeclareVar(line) {
+        // 移除注释
+        line = line.split('//')[0].trim();
+
+        let name = null;
+        let type = null;
+
+        const varRegex = /^[^=]+? \**([\w+-:]+)+(\[\d+\])?;/
+        let m = varRegex.exec(line);
+        if (m) {
+            name = m[1];
+
+            const index = line.indexOf(name);
+            type = line.substring(0, index);
+        }
+        else {
+            const funcRegex = /^[^=]+? \(\w*\s*\**\s*([\w+-:]+)\)\(\);$/;
+            m = funcRegex.exec(line);
+
+            if (m) {
+                name = m[1];
+                type = 'function';
+            }
+        }
+
+
+        if (name) {
+            return {
+                type: type,
+                name: name,
+            }
+        }
+        else {
+            return null;
+        }
+    }
 }
 
-const ASTNodeType = {
+const BranchNodeType = {
     DO: 'do',
     WHILE: 'while',
     IF: 'if',
@@ -265,7 +554,7 @@ const ASTNodeType = {
     LABEL: 'label'
 };
 
-class ASTNode {
+class BranchNode {
     constructor(type) {
         this.type = type;
         this.condition = null;
@@ -275,6 +564,8 @@ class ASTNode {
 
         this.parent = null;
         this.children = [];
+
+        this.parsedVars = null;
 
         if (type === 'case') {
             this.single = false;
@@ -286,7 +577,7 @@ class ASTNode {
             return;
         }
 
-        const textNode = new ASTNode('text');
+        const textNode = new BranchNode('text');
         textNode.lines = this.lines;
         this.addChild(textNode);
 
@@ -319,27 +610,38 @@ class ASTNode {
 
         console.log(str);
     }
+
+    /**
+     * @param handler, if handler return true, continue process children recursively.
+     */
+    visit(handler) {
+        if (handler(this)) {
+            this.children.forEach(childNode => {
+                childNode.visit(handler);
+            })
+        }
+    }
 }
 
-class ASTNodeParser {
+class BranchNodeParser {
     constructor() {
-        this.astNodeStack = [];
+        this.nodeStack = [];
         this.currentNode = null;
 
         this.labelNodeCache = {};
 
         this.conditionalRegexMap = {
-            [ASTNodeType.DO]: /do/,
-            [ASTNodeType.WHILE]: /while\s*\((.*)\).*?(;)?/,
-            [ASTNodeType.ELSEIF]: /else if\s*\((.*)\)/,
-            [ASTNodeType.IF]: /if\s*\((.*)\)/,
-            [ASTNodeType.ELSE]: /else/,
-            [ASTNodeType.SWITCH]: /switch\s*\((.*)\)/,
-            [ASTNodeType.CASE]: /case\s*([^:]+)\s*:/,
-            [ASTNodeType.BREAK] : /break/,
-            [ASTNodeType.CURLY_BRACE_L]: /\{/,
-            [ASTNodeType.CURLY_BRACE_R]: /\}/,
-            [ASTNodeType.GOTO]: /goto\s*(.*?)\s*;/
+            [BranchNodeType.DO]: /do/,
+            [BranchNodeType.WHILE]: /while\s*\((.*)\).*?(;)?/,
+            [BranchNodeType.ELSEIF]: /else if\s*\((.*)\)/,
+            [BranchNodeType.IF]: /if\s*\((.*)\)/,
+            [BranchNodeType.ELSE]: /else/,
+            [BranchNodeType.SWITCH]: /switch\s*\((.*)\)/,
+            [BranchNodeType.CASE]: /case\s*([^:]+)\s*:/,
+            [BranchNodeType.BREAK] : /break/,
+            [BranchNodeType.CURLY_BRACE_L]: /\{/,
+            [BranchNodeType.CURLY_BRACE_R]: /\}/,
+            [BranchNodeType.GOTO]: /goto\s*(.*?)\s*;/
         };
     }
 
@@ -347,7 +649,7 @@ class ASTNodeParser {
         const lines = this._tokenize(codeText);
 
         const firstLine = lines.shift();
-        const rootNode = new ASTNode(firstLine);
+        const rootNode = new BranchNode(firstLine);
         this._pushNode(rootNode);
 
         lines.forEach((line, index) => {
@@ -367,25 +669,25 @@ class ASTNodeParser {
             const commaTerminator = ret[2];
 
             switch (type) {
-                case ASTNodeType.CURLY_BRACE_L:
+                case BranchNodeType.CURLY_BRACE_L:
                     this.currentNode.single = false;
                     return;
 
-                case ASTNodeType.CURLY_BRACE_R:
+                case BranchNodeType.CURLY_BRACE_R:
                     this._popNode();
                     return;
 
-                case ASTNodeType.BREAK:
-                    if (this.currentNode.type === ASTNodeType.CASE) {
+                case BranchNodeType.BREAK:
+                    if (this.currentNode.type === BranchNodeType.CASE) {
                         // end case
                         this._popNode();
                     }
                     else if (
-                        this.currentNode.type === ASTNodeType.IF ||
-                        this.currentNode.type === ASTNodeType.ELSEIF ||
-                        this.currentNode.type === ASTNodeType.ELSE
+                        this.currentNode.type === BranchNodeType.IF ||
+                        this.currentNode.type === BranchNodeType.ELSEIF ||
+                        this.currentNode.type === BranchNodeType.ELSE
                     ) {
-                        this._pushNode(new ASTNode(ASTNodeType.BREAK));
+                        this._pushNode(new BranchNode(BranchNodeType.BREAK));
                         this._popNode();
 
                         if (this.currentNode.single) {
@@ -399,9 +701,9 @@ class ASTNodeParser {
 
                     return;
 
-                case ASTNodeType.GOTO:
-                    if (this.currentNode.type === ASTNodeType.CASE) {
-                        const gotoNode = new ASTNode(ASTNodeType.GOTO);
+                case BranchNodeType.GOTO:
+                    if (this.currentNode.type === BranchNodeType.CASE) {
+                        const gotoNode = new BranchNode(BranchNodeType.GOTO);
                         gotoNode.condition = condition;
                         this._pushNode(gotoNode);
                         this._popNode();
@@ -410,11 +712,11 @@ class ASTNodeParser {
                         this._popNode();
                     }
                     else if (
-                        this.currentNode.type === ASTNodeType.IF ||
-                        this.currentNode.type === ASTNodeType.ELSEIF ||
-                        this.currentNode.type === ASTNodeType.ELSE
+                        this.currentNode.type === BranchNodeType.IF ||
+                        this.currentNode.type === BranchNodeType.ELSEIF ||
+                        this.currentNode.type === BranchNodeType.ELSE
                     ) {
-                        const gotoNode = new ASTNode(ASTNodeType.GOTO);
+                        const gotoNode = new BranchNode(BranchNodeType.GOTO);
                         gotoNode.condition = condition;
                         this._pushNode(gotoNode);
                         this._popNode();
@@ -429,11 +731,11 @@ class ASTNodeParser {
                     }
                     return;
 
-                case ASTNodeType.WHILE:
+                case BranchNodeType.WHILE:
                     // 只有 do while 时候，while 后 才会有 comma
                     if (commaTerminator) {
                         const siblingNode = this.currentNode.getLastChild();
-                        if (siblingNode.type !== ASTNodeType.DO) {
+                        if (siblingNode.type !== BranchNodeType.DO) {
                             this._terminate("illegal while with comma", line, index);
                         }
 
@@ -443,11 +745,12 @@ class ASTNodeParser {
                     }
             }
 
-            const newNode = new ASTNode(type);
+            const newNode = new BranchNode(type);
             newNode.condition = condition;
             this._pushNode(newNode);
         });
 
+        this._parseVarDeclarations(rootNode);
         this._parseLabel(rootNode);
         this._linkLabel(rootNode);
         this._parseCondition(rootNode);
@@ -475,11 +778,11 @@ class ASTNodeParser {
 
     _pushNode(node) {
         if (this.currentNode) {
-            this.astNodeStack.push(this.currentNode);
+            this.nodeStack.push(this.currentNode);
         }
 
-        if (this.astNodeStack.length) {
-            const preNode = this.astNodeStack[this.astNodeStack.length - 1];
+        if (this.nodeStack.length) {
+            const preNode = this.nodeStack[this.nodeStack.length - 1];
             preNode.commitLines();
         }
 
@@ -493,7 +796,7 @@ class ASTNodeParser {
             return;
         }
 
-        const preNode = this.astNodeStack.pop();
+        const preNode = this.nodeStack.pop();
         if (preNode) {
             preNode.addChild(this.currentNode);
         }
@@ -539,21 +842,9 @@ class ASTNodeParser {
         return null;
     };
 
-    _visitNode(node, visit) {
-        if (!node) {
-            return;
-        }
-
-        if (!visit(node)) {
-            node.children.forEach(childNode => {
-                this._visitNode(childNode, visit);
-            })
-        }
-    }
-
     __processTextNodeLineWithRegex(rootNode, regex, handler) {
-        this._visitNode(rootNode, (node) => {
-            if (node.type === ASTNodeType.TEXT) {
+        rootNode.visit((node) => {
+            if (node.type === BranchNodeType.TEXT) {
                 let targetLineFound = false;
 
                 const newChildren = [];
@@ -564,7 +855,7 @@ class ASTNodeParser {
                         return;
                     }
 
-                    const newNode = new ASTNode("text");
+                    const newNode = new BranchNode("text");
                     newNode.lines = tmpLines;
                     newChildren.push(newNode);
 
@@ -576,7 +867,7 @@ class ASTNodeParser {
                     if (m) {
                         commitTmpLines();
 
-                        const newNode = new ASTNode();
+                        const newNode = new BranchNode();
                         handler(newNode, m);
                         newChildren.push(newNode);
 
@@ -601,10 +892,10 @@ class ASTNodeParser {
                     }
                 }
 
+                return false;
+            } else {
                 return true;
             }
-
-            return false;
         });
     }
 
@@ -612,7 +903,7 @@ class ASTNodeParser {
         const labelRegex = /(LABEL_\d+?):/;
 
         this.__processTextNodeLineWithRegex(rootNode, labelRegex, (newNode, matches) => {
-            newNode.type = ASTNodeType.LABEL;
+            newNode.type = BranchNodeType.LABEL;
             newNode.condition = matches[1];
 
             this.labelNodeCache[newNode.condition] = newNode;
@@ -620,8 +911,8 @@ class ASTNodeParser {
     }
 
     _linkLabel(rootNode) {
-        this._visitNode(rootNode,  (node) => {
-            if (node.type === ASTNodeType.GOTO) {
+        rootNode.visit((node) => {
+            if (node.type === BranchNodeType.GOTO) {
                 const targetLabelNode = this.labelNodeCache[node.condition];
                 if (!targetLabelNode) {
                     this._terminate("can not find label for goto: " + node.condition);
@@ -630,37 +921,85 @@ class ASTNodeParser {
                 //注意：实现细节， label 是 goto 的 child， 但是并不是 goto 反过来并不是 label 的 parent, 有问题了再说。
                 node.children = [targetLabelNode];
 
+                return false;
+            }
+            else {
                 return true;
             }
-
-            return false;
         })
     }
 
     _parseCondition(rootNode) {
         const conditionNodeTypes = [
-            ASTNodeType.DO,
-            ASTNodeType.WHILE,
-            ASTNodeType.IF,
-            ASTNodeType.ELSEIF,
-            ASTNodeType.SWITCH,
+            BranchNodeType.DO,
+            BranchNodeType.WHILE,
+            BranchNodeType.IF,
+            BranchNodeType.ELSEIF,
+            BranchNodeType.SWITCH,
         ];
 
-        this._visitNode(rootNode, (node) => {
+        rootNode.visit((node) => {
             if (conditionNodeTypes.indexOf(node.type) !== -1) {
-                const parser = new ExprNodeParser();
-                node.parsedCondition = parser.parse(node.condition);
+                const parser = new ExpressionNodeParser();
+                const nodes = parser.parse(node.condition);
+                node.parsedCondition = nodes[nodes.length - 1];
+            }
+
+            return true;
+        });
+    }
+
+    _parseVarDeclarations(rootNode) {
+        const lineNode = rootNode.children[0];
+        if (lineNode.type !== BranchNodeType.TEXT) {
+            return;
+        }
+
+        const varDict = {};
+
+        lineNode.lines.some((line) => {
+            const parser = new ExpressionNodeParser();
+            const ret = parser.parseDeclareVar(line);
+            if (!ret) {
                 return true;
             }
+
+            varDict[ret['name']] = ret['type'];
+
             return false;
         });
+
+        if (Object.keys(varDict).length) {
+            rootNode.parsedVars = varDict;
+
+            Object.keys(varDict).forEach(name => {
+                const type = varDict[name];
+                addType(type);
+            });
+        }
     }
 }
 
 function process(content) {
-    const parser = new ASTNodeParser();
+    const parser = new BranchNodeParser();
     const rootNode = parser.parse(content);
-    rootNode.print();
+
+    const collectParsedConditions = (rootNode) => {
+        const result = [];
+
+        rootNode.visit((node) => {
+            if (node.parsedCondition) {
+                result.push(node.parsedCondition.toString());
+            }
+
+            return true;
+        });
+
+        return result;
+    };
+
+    const parsedConditions = collectParsedConditions(rootNode);
+    console.log(parsedConditions);
 }
 
 
