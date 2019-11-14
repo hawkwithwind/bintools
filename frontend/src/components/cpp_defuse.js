@@ -28,10 +28,13 @@ function process(content) {
     // rootNode.print();
     // console.log(rootNode.toString());
 
+    const graph = parser.buildBranchGraph(rootNode);
+    console.log()
+
     // const parsedConditions = collectParsedConditions(rootNode);
     // console.log(parsedConditions);
 
-    evaluate(rootNode);
+    // evaluate(rootNode);
 }
 
 function evaluate(rootNode) {

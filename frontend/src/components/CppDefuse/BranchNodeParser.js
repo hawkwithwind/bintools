@@ -30,6 +30,11 @@ class BranchNode {
         this.parsedCondition = null;
         this.parsedVars = null;
         this.parsedLines = null;
+        this.switchParsedCondition = null;
+
+        this.nextNode = null;
+        this.trueNode = null;
+        this.falseNode = null;
 
         if (type === 'case') {
             this.single = false;
@@ -227,54 +232,56 @@ class BranchNode {
         return lines.join('\n');
     }
 
-    getNextSiblingNodes(when) {
-        if (!this.parent) {
-            return [];
-        }
-
-        const children = this.parent.children;
-        const index = children.indexOf(this);
-        if (index === -1) {
-            return [];
-        }
-
-        const ret = [];
-
-        for (let j = index + 1; j < children.length; ++j) {
-            const n = children[j];
-            if (when(n)) {
-                ret.push(n);
-            }
-            else {
-                break;
-            }
-        }
-
-        return ret;
-    }
-
-
-    getNextSiblingNode() {
-        let once = true;
-
-        const ret = this.getNextSiblingNodes((n) => {
-            let r = once;
-
-            once = false;
-
-            return r;
-        });
-
-        return ret[0];
-    }
+    // getNextSiblingNodes(when) {
+    //     if (!this.parent) {
+    //         return [];
+    //     }
+    //
+    //     const children = this.parent.children;
+    //     const index = children.indexOf(this);
+    //     if (index === -1) {
+    //         return [];
+    //     }
+    //
+    //     const ret = [];
+    //
+    //     for (let j = index + 1; j < children.length; ++j) {
+    //         const n = children[j];
+    //         if (when(n)) {
+    //             ret.push(n);
+    //         }
+    //         else {
+    //             break;
+    //         }
+    //     }
+    //
+    //     return ret;
+    // }
+    //
+    //
+    // getNextSiblingNode() {
+    //     let once = true;
+    //
+    //     const ret = this.getNextSiblingNodes((n) => {
+    //         let r = once;
+    //
+    //         once = false;
+    //
+    //         return r;
+    //     });
+    //
+    //     return ret[0];
+    // }
 }
 
 class BranchNodeParser {
     constructor() {
         this.nodeStack = [];
-        this.currentNode = null;
+        this.topNode = null;
 
         this.labelNodeCache = {};
+
+        this.graphRootNode = null;
 
         this.conditionalRegexMap = {
             [BranchNodeType.DO]: /do/,
@@ -285,8 +292,8 @@ class BranchNodeParser {
             [BranchNodeType.SWITCH]: /switch\s*\((.*)\)/,
             [BranchNodeType.CASE]: /case\s*([^:]+)\s*:/,
             [BranchNodeType.BREAK] : /break/,
-            "{": /\{/,
-            "}": /\}/,
+            "{": /{/,
+            "}": /}/,
             [BranchNodeType.GOTO]: /goto\s*(.*?)\s*;/
         };
     }
@@ -302,9 +309,9 @@ class BranchNodeParser {
         lines.forEach((line, index) => {
             const ret = this._testConditionNode(line);
             if (!ret) {
-                this.currentNode.lines.push(line.trim());
+                this.topNode.lines.push(line.trim());
 
-                if (this.currentNode.single) {
+                if (this.topNode.single) {
                     this._popNode();
                 }
 
@@ -317,7 +324,7 @@ class BranchNodeParser {
 
             switch (type) {
                 case "{":
-                    this.currentNode.single = false;
+                    this.topNode.single = false;
                     return;
 
                 case "}":
@@ -325,7 +332,7 @@ class BranchNodeParser {
                     return;
 
                 case BranchNodeType.BREAK:
-                    if (this.currentNode.type === BranchNodeType.CASE) {
+                    if (this.topNode.type === BranchNodeType.CASE) {
                         this._pushNode(new BranchNode(BranchNodeType.BREAK));
                         this._popNode();
 
@@ -333,14 +340,14 @@ class BranchNodeParser {
                         this._popNode();
                     }
                     else if (
-                        this.currentNode.type === BranchNodeType.IF ||
-                        this.currentNode.type === BranchNodeType.ELSEIF ||
-                        this.currentNode.type === BranchNodeType.ELSE
+                        this.topNode.type === BranchNodeType.IF ||
+                        this.topNode.type === BranchNodeType.ELSEIF ||
+                        this.topNode.type === BranchNodeType.ELSE
                     ) {
                         this._pushNode(new BranchNode(BranchNodeType.BREAK));
                         this._popNode();
 
-                        if (this.currentNode.single) {
+                        if (this.topNode.single) {
                             // end if
                             this._popNode();
                         }
@@ -352,7 +359,7 @@ class BranchNodeParser {
                     return;
 
                 case BranchNodeType.GOTO:
-                    if (this.currentNode.type === BranchNodeType.CASE) {
+                    if (this.topNode.type === BranchNodeType.CASE) {
                         const gotoNode = new BranchNode(BranchNodeType.GOTO);
                         gotoNode.condition = condition;
                         this._pushNode(gotoNode);
@@ -362,16 +369,16 @@ class BranchNodeParser {
                         this._popNode();
                     }
                     else if (
-                        this.currentNode.type === BranchNodeType.IF ||
-                        this.currentNode.type === BranchNodeType.ELSEIF ||
-                        this.currentNode.type === BranchNodeType.ELSE
+                        this.topNode.type === BranchNodeType.IF ||
+                        this.topNode.type === BranchNodeType.ELSEIF ||
+                        this.topNode.type === BranchNodeType.ELSE
                     ) {
                         const gotoNode = new BranchNode(BranchNodeType.GOTO);
                         gotoNode.condition = condition;
                         this._pushNode(gotoNode);
                         this._popNode();
 
-                        if (this.currentNode.single) {
+                        if (this.topNode.single) {
                             // end if
                             this._popNode();
                         }
@@ -384,7 +391,7 @@ class BranchNodeParser {
                 case BranchNodeType.WHILE:
                     // 只有 do while 时候，while 后 才会有 comma
                     if (commaTerminator) {
-                        const siblingNode = this.currentNode.getLastChild();
+                        const siblingNode = this.topNode.getLastChild();
                         if (siblingNode.type !== BranchNodeType.DO) {
                             this._terminate("illegal while with comma", line, index);
                         }
@@ -401,10 +408,8 @@ class BranchNodeParser {
         });
 
         this._parseLabel(rootNode);
-        this._linkLabel(rootNode);
         this._parseCondition(rootNode);
         this._parseLines(rootNode);
-
 
         return rootNode;
     }
@@ -428,8 +433,8 @@ class BranchNodeParser {
     }
 
     _pushNode(node) {
-        if (this.currentNode) {
-            this.nodeStack.push(this.currentNode);
+        if (this.topNode) {
+            this.nodeStack.push(this.topNode);
         }
 
         if (this.nodeStack.length) {
@@ -437,38 +442,21 @@ class BranchNodeParser {
             preNode.commitLines();
         }
 
-        this.currentNode = node;
-
-        // console.debug(`> push: ${this.currentNode.type} ${this.currentNode.condition || ""}`);
+        this.topNode = node;
     }
 
     _popNode() {
-        if (!this.currentNode) {
+        if (!this.topNode) {
             return;
         }
 
         const preNode = this.nodeStack.pop();
         if (preNode) {
-            preNode.addChild(this.currentNode);
+            preNode.addChild(this.topNode);
         }
 
-        this.currentNode.commitLines();
-        // console.debug(`> pop: ${this.currentNode.type} ${this.currentNode.condition || ""}`);
-
-        this.currentNode = preNode;
-    }
-
-    _getCurrentSiblingNode() {
-        if (!this.currentNode) {
-            return null;
-        }
-
-        if (this.currentNode.children.length) {
-            return this.currentNode.children[this.currentNode.children.length - 1];
-        }
-        else {
-            return null;
-        }
+        this.topNode.commitLines();
+        this.topNode = preNode;
     }
 
     _terminate(desc, line = null, lineIndex = null) {
@@ -560,26 +548,6 @@ class BranchNodeParser {
             this.labelNodeCache[newNode.condition] = newNode;
         });
     }
-
-    _linkLabel(rootNode) {
-        rootNode.visit((node) => {
-            if (node.type === BranchNodeType.GOTO) {
-                const targetLabelNode = this.labelNodeCache[node.condition];
-                if (!targetLabelNode) {
-                    this._terminate("can not find label for goto: " + node.condition);
-                }
-
-                //注意：实现细节， label 是 goto 的 child， 但是并不是 goto 反过来并不是 label 的 parent, 有问题了再说。
-                node.children = [targetLabelNode];
-
-                return false;
-            }
-            else {
-                return true;
-            }
-        })
-    }
-
     _parseCondition(rootNode) {
         const conditionNodeTypes = [
             BranchNodeType.DO,
@@ -600,7 +568,6 @@ class BranchNodeParser {
             return true;
         });
     }
-
     _parseLines(rootNode) {
         rootNode.visit((node) => {
             if (node.type === BranchNodeType.TEXT) {
@@ -637,6 +604,226 @@ class BranchNodeParser {
 
             return true;
         });
+    }
+
+    _buildBranchGraph (node) {
+        console.log(`> _linkBranchGraph: ${node.type} ${node.condition}`);
+        const linkChildren = (node) => {
+            const children = node.children;
+            if (!children || !children.length) {
+                return [null, () => {}];
+            }
+
+            let headNode = null;
+            let preLinkTail = null;
+
+            let index = 0;
+            while (index < node.children.length) {
+                const child = node.children[index];
+                const ret = this._buildBranchGraph(child);
+                if (!ret) {
+                    index++;
+                    continue;
+                }
+
+                const retNode = ret[0];
+                const linkTail = ret[1];
+
+                if (!headNode) {
+                    headNode = retNode;
+                }
+
+                preLinkTail&& preLinkTail(retNode);
+                preLinkTail = linkTail;
+
+                // 把 if 后面的 else if、else 也一同处理掉
+                if (child.type === BranchNodeType.IF) {
+                    const ifLinkExitTailList = [ret[2]];
+
+                    let j = index + 1;
+                    while (j < node.children.length) {
+                        const childSibling = node.children[j];
+                        if (childSibling.type === BranchNodeType.ELSEIF || childSibling.type === BranchNodeType.ELSE) {
+                            const ret = this._buildBranchGraph(childSibling);
+                            const retNode = ret[0];
+                            const linkTail = ret[1];
+
+                            // else： ret[2] 为空
+                            ret[2] && ifLinkExitTailList.push(ret[2]);
+
+                            preLinkTail(retNode);
+                            preLinkTail = linkTail;
+                        }
+                        else {
+                            break;
+                        }
+
+                        j++;
+                    }
+
+                    const oldPreLinkTail = preLinkTail;
+                    preLinkTail = (tailNode) => {
+                        ifLinkExitTailList.forEach(link => {
+                            link(tailNode);
+                        });
+
+                        oldPreLinkTail(tailNode);
+                    };
+
+                    index = j;
+                }
+
+                // 把 case 后面 case 也 一同处理掉。处理方式和 if else 类似，多一个 break 处理
+                else if (child.type === BranchNodeType.CASE) {
+                    const caseLinkExitTailList = [ret[2]];
+
+                    let j = index + 1;
+                    while (j < node.children.length) {
+                        const childSibling = node.children[j];
+                        if (childSibling.type === BranchNodeType.CASE) {
+                            const ret = this._buildBranchGraph(childSibling);
+                            const retNode = ret[0];
+                            const linkTail = ret[1];
+
+                            // 如果没有 break， ret[2] 为空
+                            ret[2] && caseLinkExitTailList.push(ret[2]);
+
+                            preLinkTail(retNode);
+                            preLinkTail = linkTail;
+                        }
+                        else {
+                            break;
+                        }
+
+                        j++;
+                    }
+
+                    const oldPreLinkTail = preLinkTail;
+                    preLinkTail = (tailNode) => {
+                        caseLinkExitTailList.forEach(link => {
+                            link(tailNode);
+                        });
+
+                        oldPreLinkTail(tailNode);
+                    };
+
+                    index = j;
+                }
+
+                else {
+                    index++;
+                }
+            }
+
+            return [headNode, preLinkTail];
+        };
+
+        const ret = linkChildren(node);
+        const childrenHeadNode = ret[0];
+        const childrenLinkTail = ret[1];
+
+        switch (node.type) {
+            case BranchNodeType.FUNCTION:
+                return ret;
+
+            case BranchNodeType.DO:
+            case BranchNodeType.WHILE:
+                node.trueNode = childrenHeadNode;
+
+                return [node, (tailNode) => {
+                    childrenLinkTail(tailNode);
+                    node.falseNode = tailNode;
+
+                    node._breakNodes && node._breakNodes.forEach((breakNode) => {
+                        breakNode.nextNode = tailNode;
+                    });
+                }];
+
+            case BranchNodeType.IF:
+            case BranchNodeType.ELSEIF:
+                node.trueNode = childrenHeadNode;
+                // if elseif false node 和 childNode 需要分开设置
+                return [node, (falseNode) => {
+                    node.falseNode = falseNode;
+                }, (exitNode) => {
+                    childrenLinkTail(exitNode);
+                }];
+
+            case BranchNodeType.ELSE:
+                return ret;
+
+            case BranchNodeType.SWITCH:
+                return ret;
+
+            case BranchNodeType.CASE:
+                node.switchParsedCondition = node.parent.parsedCondition;
+                node.trueNode = childrenHeadNode;
+
+                if (node._break) {
+                    return [node, (falseNode) => {
+                        node.falseNode = falseNode;
+                    }, (exitNode) => {
+                        childrenLinkTail(exitNode);
+                    }];
+                }
+                else {
+                    return [node, (falseNode) => {
+                        node.falseNode = falseNode;
+                        childrenLinkTail(falseNode);
+                    }];
+                }
+
+            case BranchNodeType.BREAK:
+                // case break
+                if (node.parent.type === BranchNodeType.CASE) {
+                    node.parent._break = true;
+                }
+                // 循环的 break
+                else  {
+                    return [node, (_) => {
+                        // break 的next 直接连接上最近循环的 falseNode
+
+                        let parent = node.parent;
+                        while (parent) {
+                            if (parent.type === BranchNodeType.DO || parent.type === BranchNodeType.WHILE) {
+                                if (!parent._breakNodes) {
+                                    parent._breakNodes = [];
+                                }
+
+                                parent._breakNodes.push(node);
+                                break;
+                            }
+
+                            parent = parent.parent;
+                        }
+                    }];
+                }
+                return;
+
+            case BranchNodeType.GOTO:
+                const targetLabelNode = this.labelNodeCache[node.condition];
+                if (!targetLabelNode) {
+                    this._terminate("can not find label for goto: " + node.condition);
+                }
+
+                node.nextNode = targetLabelNode;
+                return [node, (_) => {
+                    // do nothing
+                }];
+
+            case BranchNodeType.TEXT:
+            case BranchNodeType.LABEL:
+                return [node, (trailNode) => {
+                    node.nextNode = trailNode;
+                }];
+        }
+
+        return null;
+    }
+
+    buildBranchGraph(rootNode) {
+        const ret = this._buildBranchGraph(rootNode);
+        return ret && ret[0];
     }
 }
 
