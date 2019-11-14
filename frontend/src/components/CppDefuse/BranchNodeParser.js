@@ -1,4 +1,4 @@
-const ExpressionNodeParser = require('./ExpressionNodeParser');
+const ExpressionNodeParser = require('./ExpressionNodeParser').ExpressionNodeParser;
 
 const BranchNodeType = {
     FUNCTION: 'function',
@@ -60,14 +60,18 @@ class BranchNode {
     print() {
         var cache = [];
         const str = JSON.stringify(this, function(key, value) {
-            if (typeof value === 'object' && value !== null) {
+            if (typeof value === 'bigint') {
+                return value.toString(16);
+            }
+            else if (typeof value === 'object' && value !== null) {
                 if (cache.indexOf(value) !== -1) {
                     // Duplicate reference found, discard key
-                    return "PRINTED";
+                    return "CIRCULAR";
                 }
                 // Store value in our collection
                 cache.push(value);
             }
+
             return value;
         }, "  ");
         cache = null;
@@ -221,6 +225,47 @@ class BranchNode {
 
         const lines = _toStringLines(this);
         return lines.join('\n');
+    }
+
+    getNextSiblingNodes(when) {
+        if (!this.parent) {
+            return [];
+        }
+
+        const children = this.parent.children;
+        const index = children.indexOf(this);
+        if (index === -1) {
+            return [];
+        }
+
+        const ret = [];
+
+        for (let j = index + 1; j < children.length; ++j) {
+            const n = children[j];
+            if (when(n)) {
+                ret.push(n);
+            }
+            else {
+                break;
+            }
+        }
+
+        return ret;
+    }
+
+
+    getNextSiblingNode() {
+        let once = true;
+
+        const ret = this.getNextSiblingNodes((n) => {
+            let r = once;
+
+            once = false;
+
+            return r;
+        });
+
+        return ret[0];
     }
 }
 
@@ -595,4 +640,6 @@ class BranchNodeParser {
     }
 }
 
-module.exports = BranchNodeParser;
+exports.BranchNodeType = BranchNodeType;
+exports.BranchNode = BranchNode;
+exports.BranchNodeParser = BranchNodeParser;

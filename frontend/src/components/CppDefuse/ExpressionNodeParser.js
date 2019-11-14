@@ -617,4 +617,6 @@ class ExpressionNodeParser {
     }
 }
 
-module.exports = ExpressionNodeParser;
+exports.ExpressionNodeType = ExpressionNodeType;
+exports.ExpressionNode = ExpressionNode;
+exports.ExpressionNodeParser = ExpressionNodeParser;
