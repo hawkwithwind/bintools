@@ -729,9 +729,9 @@ class BranchNodeParser {
             case BranchNodeType.DO:
             case BranchNodeType.WHILE:
                 node.trueNode = childrenHeadNode;
+                childrenLinkTail(node);
 
                 return [node, (tailNode) => {
-                    childrenLinkTail(tailNode);
                     node.falseNode = tailNode;
 
                     node._breakNodes && node._breakNodes.forEach((breakNode) => {
